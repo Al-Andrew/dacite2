@@ -74,6 +74,11 @@ struct Token {
         
         Lparen,
         Rparen,
+        
+        Plus,
+        Minus,
+        Star,
+        Slash,
 
         Semicolon,
 
@@ -140,6 +145,26 @@ std::vector<Token> tokenize(const char* source) {
                 fprintf(stderr, "Error: Unknown intrinsic at pos %d\n", current_pos);
                 break;
             }
+        }
+        else if(c == '+') {
+            tokens.push_back({Token::Type::Plus, 1, current_pos});
+            current_pos++;
+            start_pos = current_pos;
+        }
+        else if(c == '-') {
+            tokens.push_back({Token::Type::Minus, 1, current_pos});
+            current_pos++;
+            start_pos = current_pos;
+        }
+        else if(c == '*') {
+            tokens.push_back({Token::Type::Star, 1, current_pos});
+            current_pos++;
+            start_pos = current_pos;
+        }
+        else if(c == '/') {
+            tokens.push_back({Token::Type::Slash, 1, current_pos});
+            current_pos++;
+            start_pos = current_pos;
         }
         else if(c >= '0' && c <= '9') {
             // Number literal
@@ -237,6 +262,81 @@ struct AST {
         const char* source_ref = nullptr;
     };
 
+    struct Expression : public Node {
+        void print(int indent = 0) const override {
+            printf("%*sExpression\n", indent * 2, "");
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        const char* get_type_name() const override { return "Expression"; }
+    };
+
+    struct BinaryExpression : public Expression {
+        BinaryExpression(const Token& op) : operator_token(op) {}
+        
+        void print(int indent = 0) const override {
+            std::string lexeme(source_ref + operator_token.pos, operator_token.length);
+            printf("%*sBinaryExpression: %s\n", indent * 2, "", lexeme.c_str());
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        
+        const char* get_type_name() const override { return "BinaryExpression"; }
+        
+        void set_source_ref(const char* source) { source_ref = source; }
+        
+        Token operator_token;
+        const char* source_ref = nullptr;
+    };
+
+    struct UnaryPrefixExpression : public Expression {
+        UnaryPrefixExpression(const Token& op) : operator_token(op) {}
+        
+        void print(int indent = 0) const override {
+            std::string lexeme(source_ref + operator_token.pos, operator_token.length);
+            printf("%*sUnaryPrefixExpression: %s\n", indent * 2, "", lexeme.c_str());
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        
+        const char* get_type_name() const override { return "UnaryPrefixExpression"; }
+        
+        void set_source_ref(const char* source) { source_ref = source; }
+        
+        Token operator_token;
+        const char* source_ref = nullptr;
+    };
+
+     struct UnaryPostfixExpression : public Expression {
+        UnaryPostfixExpression(const Token& op) : operator_token(op) {}
+        
+        void print(int indent = 0) const override {
+            std::string lexeme(source_ref + operator_token.pos, operator_token.length);
+            printf("%*sUnaryPostfixExpression: %s\n", indent * 2, "", lexeme.c_str());
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        
+        const char* get_type_name() const override { return "UnaryPostfixExpression"; }
+        
+        void set_source_ref(const char* source) { source_ref = source; }
+        
+        Token operator_token;
+        const char* source_ref = nullptr;
+    };
+
     std::unique_ptr<Node> root;
     char const* source;
     
@@ -252,7 +352,130 @@ struct AST {
     }
 };
 
+
+std::pair<int, int> get_infix_binding(Token::Type type) {
+    switch(type) {
+        case Token::Type::Plus:
+            return {5, 6};
+        case Token::Type::Minus:
+            return {5, 6};
+        case Token::Type::Star:
+            return {7, 8};
+        case Token::Type::Slash:
+            return {7, 8};
+        default:
+            return {0, 0};
+    }
+}
+
+std::pair<int, int> get_prefix_binding(Token::Type type) {
+    switch(type) {
+        case Token::Type::Minus:
+            return {0, 9};
+        case Token::Type::Plus:
+            return {0, 9};
+        default:
+            return {0, 0};
+    }
+}
+
+std::pair<int, int> get_postfix_binding(Token::Type type) {
+    switch(type) {
+        default:
+            return {0, 0};
+    }
+}
+
+
+std::unique_ptr<AST::Node> parse_expression_bp(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index, int min_bp) {
+    DBG_PRINT("parse_expression_bp: index=%zu, min_bp=%d", index, min_bp);
+
+    const auto lhs_token = tokens[index++];
+    std::unique_ptr<AST::Node> lhs;
+    switch (lhs_token.type) {
+        case Token::Type::Literal_Number: {
+            auto number_node = std::make_unique<AST::NumberLiteral>(lhs_token);
+            number_node->set_source_ref(source);
+            lhs = std::move(number_node);
+            DBG_PRINT("lhs is NumberLiteral");
+        } break;
+        case Token::Type::Lparen: {
+            lhs = parse_expression_bp(ast, tokens, source, index, 0);
+            if(!lhs) {
+                return nullptr;
+            }
+            if(index >= tokens.size() || tokens[index].type != Token::Type::Rparen) {
+                fprintf(stderr, "Error: Expected ) at token %zu\n", index);
+                return nullptr;
+            }
+            index++; // consume )
+        } break;
+        case Token::Type::Minus:
+        case Token::Type::Plus: {
+            auto [_, r_bp] = get_prefix_binding(lhs_token.type);
+            auto rhs = parse_expression_bp(ast, tokens, source, index, r_bp);
+            if(!rhs) {
+                return nullptr;
+            }
+            auto prefix_node = std::make_unique<AST::UnaryPrefixExpression>(lhs_token);
+            prefix_node->children.push_back(std::move(rhs));
+            lhs = std::move(prefix_node);
+        } break;
+        default:
+            fprintf(stderr, "Error: Unexpected token type %d at token %zu\n", (int)lhs_token.type, index - 1);
+            return nullptr;
+    }
+
+    while(index < tokens.size()) {
+        const auto op_token = tokens[index];
+        DBG_PRINT("Considering operator token type %d at index %zu", (int)op_token.type, index);
+        // Check for infix operators
+        if(auto [l_bp, r_bp] = get_infix_binding(op_token.type); l_bp != 0) {
+            if(l_bp < min_bp) {
+                break;
+            }
+            index++; // consume operator
+            auto rhs = parse_expression_bp(ast, tokens, source, index, r_bp);
+            if(!rhs) {
+                return nullptr;
+            }
+            auto binary_node = std::make_unique<AST::BinaryExpression>(op_token);
+            binary_node->set_source_ref(source);
+            binary_node->children.push_back(std::move(lhs));
+            binary_node->children.push_back(std::move(rhs));
+            lhs = std::move(binary_node);
+            continue;
+        }
+        // Check for postfix operators
+        if(auto [l_bp, r_bp] = get_postfix_binding(op_token.type); l_bp != 0) {
+            if(l_bp < min_bp) {
+                break;
+            }
+            index++; // consume operator
+            auto postfix_node = std::make_unique<AST::UnaryPostfixExpression>(op_token);
+            postfix_node->set_source_ref(source);
+            postfix_node->children.push_back(std::move(lhs));
+            lhs = std::move(postfix_node);
+            continue;
+        }
+        break; // No more operators
+    }
+
+    return lhs;
+}
+
+std::unique_ptr<AST::Node> parse_expression(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
+    if(index >= tokens.size()) {
+        fprintf(stderr, "Error: Unexpected end of tokens while parsing expression at token %zu\n", index);
+        return nullptr;
+    }
+
+    return parse_expression_bp(ast, tokens, source, index, 0);
+}
+
 void parse_intrinsic_print(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
+    DBG_PRINT("parse_intrinsic_print: index=%zu", index);
+    
     // Expecting: @print ( <number> ) ;
     if(index >= tokens.size() || tokens[index].type != Token::Type::Intrinsic_Print) {
         fprintf(stderr, "Error: Expected @print at token %zu\n", index);
@@ -266,14 +489,11 @@ void parse_intrinsic_print(AST& ast, const std::vector<Token>& tokens, char cons
     }
     index++; // consume (
 
-    if(index >= tokens.size() || tokens[index].type != Token::Type::Literal_Number) {
-        fprintf(stderr, "Error: Expected number literal after ( at token %zu\n", index);
+    std::unique_ptr<AST::Node> expression = parse_expression(ast, tokens, source, index);
+    if(!expression) {
+        fprintf(stderr, "Error: Failed to parse expression after @print at token %zu\n", index);
         return;
     }
-    const Token& number_token = tokens[index];
-    std::unique_ptr<AST::NumberLiteral> number_literal = std::make_unique<AST::NumberLiteral>(number_token);
-    number_literal->set_source_ref(source);
-    index++; // consume number literal
 
     if(index >= tokens.size() || tokens[index].type != Token::Type::Rparen) {
         fprintf(stderr, "Error: Expected ) after number literal at token %zu\n", index);
@@ -289,7 +509,7 @@ void parse_intrinsic_print(AST& ast, const std::vector<Token>& tokens, char cons
 
     // Construct AST node for @print statement
     std::unique_ptr<AST::IntrinsicPrint> print_node = std::make_unique<AST::IntrinsicPrint>();
-    print_node->children.push_back(std::move(number_literal));
+    print_node->children.push_back(std::move(expression));
 
     ast.root->children.emplace_back(std::move(print_node));
     // Successfully parsed @print statement
@@ -332,6 +552,12 @@ AST parse(const std::vector<Token>& tokens, const char* source) {
 
 enum class BytecodeOp : uint32_t {
     PRINT = 1,
+    ADD = 2,
+    SUBTRACT = 3,
+    MULTIPLY = 4,
+    DIVIDE = 5,
+    PUSH_CONST = 6,
+    POP = 7,
 };
 
 CompiledModule codegen_from_ast(const AST& ast) {
@@ -361,7 +587,6 @@ CompiledModule codegen_from_ast(const AST& ast) {
             const AST::Node* child = print_node->children[0].get();
             dfs(child);
             module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PRINT));
-            module.bytecode.push_back(module.constants.size() - 1); // index of the constant to print
             return;
         }
         else if(const AST::NumberLiteral* number_node = dynamic_cast<const AST::NumberLiteral*>(node); number_node) {
@@ -373,6 +598,62 @@ CompiledModule codegen_from_ast(const AST& ast) {
             // Add constant to module
             uint32_t const_index = module.constants.size();
             module.constants.push_back(value);
+            // Generate bytecode to push constant
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+            module.bytecode.push_back(const_index);
+            return;
+        }
+        else if(const AST::BinaryExpression* binary_node = dynamic_cast<const AST::BinaryExpression*>(node); binary_node) {
+            if(binary_node->children.size() != 2) {
+                fprintf(stderr, "Error: BinaryExpression node has %zu children, expected 2\n", binary_node->children.size());
+                return;
+            }
+            const AST::Node* lhs = binary_node->children[0].get();
+            const AST::Node* rhs = binary_node->children[1].get();
+            dfs(lhs);
+            dfs(rhs);
+
+            switch(binary_node->operator_token.type) {
+                case Token::Type::Plus:
+                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD));
+                    break;
+                case Token::Type::Minus:
+                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
+                    break;
+                case Token::Type::Star:
+                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::MULTIPLY));
+                    break;
+                case Token::Type::Slash:
+                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::DIVIDE));
+                    break;
+                default:
+                    fprintf(stderr, "Error: Unknown binary operator token type %d\n", (int)binary_node->operator_token.type);
+                    return;
+            }
+            return;
+        }
+        else if(const AST::UnaryPrefixExpression* prefix_node = dynamic_cast<const AST::UnaryPrefixExpression*>(node); prefix_node) {
+            if(prefix_node->children.size() != 1) {
+                fprintf(stderr, "Error: UnaryPrefixExpression node has %zu children, expected 1\n", prefix_node->children.size());
+                return;
+            }
+            const AST::Node* operand = prefix_node->children[0].get();
+            dfs(operand);
+            switch(prefix_node->operator_token.type) {
+                case Token::Type::Minus:
+                    // Negate the top of the stack: PUSH_CONST 0; SUBTRACT
+                    module.constants.push_back(0);
+                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+                    module.bytecode.push_back(module.constants.size() - 1);
+                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
+                    break;
+                case Token::Type::Plus:
+                    // No-op for unary plus
+                    break;
+                default:
+                    fprintf(stderr, "Error: Unknown unary prefix operator token type %d\n", (int)prefix_node->operator_token.type);
+                    return;
+            }
             return;
         }
     };
@@ -433,18 +714,80 @@ struct VM {
             BytecodeOp op = static_cast<BytecodeOp>(module.bytecode[pc]);
             switch(op) {
                 case BytecodeOp::PRINT: {
+                    if(stack.size() < 1) {
+                        fprintf(stderr, "Error: PRINT instruction requires at least 1 value on the stack\n");
+                        return false;
+                    }
+                    uint64_t value = stack.back();
+                    stack.pop_back();
+                    printf("%llu\n", value);
+                    pc += 1;
+                } break;
+                case BytecodeOp::ADD: {
+                    if(stack.size() < 2) {
+                        fprintf(stderr, "Error: ADD instruction requires at least 2 values on the stack\n");
+                        return false;
+                    }
+                    uint64_t b = stack.back(); stack.pop_back();
+                    uint64_t a = stack.back(); stack.pop_back();
+                    stack.push_back(a + b);
+                    pc += 1;
+                } break;
+                case BytecodeOp::SUBTRACT: {
+                    if(stack.size() < 2) {
+                        fprintf(stderr, "Error: SUBTRACT instruction requires at least 2 values on the stack\n");
+                        return false;
+                    }
+                    uint64_t b = stack.back(); stack.pop_back();
+                    uint64_t a = stack.back(); stack.pop_back();
+                    stack.push_back(a - b);
+                    pc += 1;
+                } break;
+                case BytecodeOp::MULTIPLY: {
+                    if(stack.size() < 2) {
+                        fprintf(stderr, "Error: MULTIPLY instruction requires at least 2 values on the stack\n");
+                        return false;
+                    }
+                    uint64_t b = stack.back(); stack.pop_back();
+                    uint64_t a = stack.back(); stack.pop_back();
+                    stack.push_back(a * b);
+                    pc += 1;
+                } break;
+                case BytecodeOp::DIVIDE: {
+                    if(stack.size() < 2) {
+                        fprintf(stderr, "Error: DIVIDE instruction requires at least 2 values on the stack\n");
+                        return false;
+                    }
+                    uint64_t b = stack.back(); stack.pop_back();
+                    if(b == 0) {
+                        fprintf(stderr, "Error: Division by zero\n");
+                        return false;
+                    }
+                    uint64_t a = stack.back(); stack.pop_back();
+                    stack.push_back(a / b);
+                    pc += 1;
+                } break;
+                case BytecodeOp::PUSH_CONST: {
                     if(pc + 1 >= module.bytecode.size()) {
-                        fprintf(stderr, "Error: PRINT instruction missing operand\n");
+                        fprintf(stderr, "Error: PUSH_CONST instruction missing operand\n");
                         return false;
                     }
                     uint32_t const_index = module.bytecode[pc + 1];
                     if(const_index >= module.constants.size()) {
-                        fprintf(stderr, "Error: PRINT instruction has invalid constant index %u\n", const_index);
+                        fprintf(stderr, "Error: PUSH_CONST instruction has invalid constant index %u\n", const_index);
                         return false;
                     }
                     uint64_t value = module.constants[const_index];
-                    printf("%llu\n", (unsigned long long)value);
-                    pc += 2; // advance past PRINT and its operand
+                    stack.push_back(value);
+                    pc += 2; // advance past PUSH_CONST and its operand
+                } break;
+                case BytecodeOp::POP: {
+                    if(stack.size() < 1) {
+                        fprintf(stderr, "Error: POP instruction requires at least 1 value on the stack\n");
+                        return false;
+                    }
+                    stack.pop_back();
+                    pc += 1;
                 } break;
                 default: {
                     fprintf(stderr, "Error: Unknown bytecode operation %u at pc %zu\n", (uint32_t)op, pc);
@@ -456,6 +799,7 @@ struct VM {
     }
 
     std::vector<CompiledModule> modules;
+    std::vector<uint64_t> stack;
 };
 
 int run_file(char const* const script) {
