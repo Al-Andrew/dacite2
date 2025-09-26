@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,8 +70,16 @@ struct CompiledModule {
 
 struct Token {
     enum class Type : uint8_t {
+        Unknown,
+
+        Keyword_Let,
+
         Intrinsic_Print,
+        
+        
         Literal_Number,
+
+        Identifier,
         
         Lparen,
         Rparen,
@@ -80,6 +89,9 @@ struct Token {
         Star,
         Slash,
 
+        Equals,
+
+        Colon,
         Semicolon,
 
         _EOF,
@@ -175,9 +187,33 @@ std::vector<Token> tokenize(const char* source) {
             tokens.push_back({Token::Type::Literal_Number, length, start_pos});
             start_pos = current_pos;
         }
+        else if(isalpha(c) || c == '_') {
+            // Identifier or keyword
+            while(isalnum(source[current_pos]) || source[current_pos] == '_') {
+                current_pos++;
+            }
+            uint16_t length = current_pos - start_pos;
+            if(length == 3 && strncmp(source + start_pos, "let", 3) == 0) {
+                tokens.push_back({Token::Type::Keyword_Let, length, start_pos});
+            } else {
+                tokens.push_back({Token::Type::Identifier, length, start_pos});
+            }
+            start_pos = current_pos;
+        }
+        else if(c == '=') {
+            tokens.push_back({Token::Type::Equals, 1, current_pos});
+            current_pos++;
+            start_pos = current_pos;
+        }
+        else if(c == ':') {
+            tokens.push_back({Token::Type::Colon, 1, current_pos});
+            current_pos++;
+            start_pos = current_pos;
+        }
 
         else {
             fprintf(stderr, "Error: Unknown character '%c' at pos %d\n", c, current_pos);
+            exit(1); // todo: clean exit
             break;
         }
     }
@@ -228,6 +264,18 @@ struct AST {
         const char* get_type_name() const override { return "Statement"; }
     };
 
+    struct VariableDeclaration : public Statement {
+        void print(int indent = 0) const override {
+            printf("%*sVariableDeclaration\n", indent * 2, "");
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        const char* get_type_name() const override { return "VariableDeclaration"; }
+    };
+
     struct IntrinsicPrint : public Statement {
         void print(int indent = 0) const override {
             printf("%*sIntrinsicPrint (@print)\n", indent * 2, "");
@@ -260,6 +308,42 @@ struct AST {
         
         Token token;
         const char* source_ref = nullptr;
+    };
+
+    struct Identifier : public Node {
+        Identifier(const Token& t) : token(t) {}
+        
+        void print(int indent = 0) const override {
+            // Extract the actual identifier name from the token
+            std::string lexeme(source_ref + token.pos, token.length);
+            printf("%*sIdentifier: %s\n", indent * 2, "", lexeme.c_str());
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        
+        const char* get_type_name() const override { return "Identifier"; }
+        
+        void set_source_ref(const char* source) { source_ref = source; }
+        
+        Token token;
+        const char* source_ref = nullptr;
+    };
+
+    struct Type : public Identifier {
+        Type(const Token& t) : Identifier(t) {}
+
+        void print(int indent = 0) const override {
+            printf("%*sType\n", indent * 2, "");
+            for (const auto& child : children) {
+                if (child) {
+                    child->print(indent + 1);
+                }
+            }
+        }
+        const char* get_type_name() const override { return "Type"; }
     };
 
     struct Expression : public Node {
@@ -363,6 +447,8 @@ std::pair<int, int> get_infix_binding(Token::Type type) {
             return {7, 8};
         case Token::Type::Slash:
             return {7, 8};
+        case Token::Type::Equals:
+            return {2, 1};
         default:
             return {0, 0};
     }
@@ -398,6 +484,12 @@ std::unique_ptr<AST::Node> parse_expression_bp(AST& ast, const std::vector<Token
             number_node->set_source_ref(source);
             lhs = std::move(number_node);
             DBG_PRINT("lhs is NumberLiteral");
+        } break;
+        case Token::Type::Identifier: {
+            auto identifier_node = std::make_unique<AST::Identifier>(lhs_token);
+            identifier_node->set_source_ref(source);
+            lhs = std::move(identifier_node);
+            DBG_PRINT("lhs is Identifier");
         } break;
         case Token::Type::Lparen: {
             lhs = parse_expression_bp(ast, tokens, source, index, 0);
@@ -473,37 +565,37 @@ std::unique_ptr<AST::Node> parse_expression(AST& ast, const std::vector<Token>& 
     return parse_expression_bp(ast, tokens, source, index, 0);
 }
 
-void parse_intrinsic_print(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
+std::unique_ptr<AST::Node> parse_intrinsic_print(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
     DBG_PRINT("parse_intrinsic_print: index=%zu", index);
     
     // Expecting: @print ( <number> ) ;
     if(index >= tokens.size() || tokens[index].type != Token::Type::Intrinsic_Print) {
         fprintf(stderr, "Error: Expected @print at token %zu\n", index);
-        return;
+        return nullptr;
     }
     index++; // consume @print
 
     if(index >= tokens.size() || tokens[index].type != Token::Type::Lparen) {
         fprintf(stderr, "Error: Expected ( after @print at token %zu\n", index);
-        return;
+        return nullptr;
     }
     index++; // consume (
 
     std::unique_ptr<AST::Node> expression = parse_expression(ast, tokens, source, index);
     if(!expression) {
         fprintf(stderr, "Error: Failed to parse expression after @print at token %zu\n", index);
-        return;
+        return nullptr;
     }
 
     if(index >= tokens.size() || tokens[index].type != Token::Type::Rparen) {
         fprintf(stderr, "Error: Expected ) after number literal at token %zu\n", index);
-        return;
+        return nullptr;
     }
     index++; // consume )
 
     if(index >= tokens.size() || tokens[index].type != Token::Type::Semicolon) {
         fprintf(stderr, "Error: Expected ; after ) at token %zu\n", index);
-        return;
+        return nullptr;
     }
     index++; // consume ;
 
@@ -511,25 +603,105 @@ void parse_intrinsic_print(AST& ast, const std::vector<Token>& tokens, char cons
     std::unique_ptr<AST::IntrinsicPrint> print_node = std::make_unique<AST::IntrinsicPrint>();
     print_node->children.push_back(std::move(expression));
 
-    ast.root->children.emplace_back(std::move(print_node));
-    // Successfully parsed @print statement
-    DBG_PRINT("Successfully parsed @print statement");
+    return print_node;
 }
 
-void parse_statement(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
+std::unique_ptr<AST::Node> parse_variable_declaration(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
+    DBG_PRINT("parse_variable_declaration: index=%zu", index);
+    
+    // Expecting: let <identifier> : <type> = <expression> ;
+    if(index >= tokens.size() || tokens[index].type != Token::Type::Keyword_Let) {
+        fprintf(stderr, "Error: Expected 'let' at token %zu\n", index);
+        return nullptr;
+    }
+    index++; // consume 'let'
+
+    if(index >= tokens.size() || tokens[index].type != Token::Type::Identifier) {
+        fprintf(stderr, "Error: Expected identifier after 'let' at token %zu\n", index);
+        return nullptr;
+    }
+    Token identifier_token = tokens[index++]; // consume identifier
+    auto identifier_node = std::make_unique<AST::Identifier>(identifier_token);
+    identifier_node->set_source_ref(source);
+    DBG_PRINT("Parsed identifier");
+
+    if(index >= tokens.size() || tokens[index].type != Token::Type::Colon) {
+        fprintf(stderr, "Error: Expected ':' after identifier at token %zu\n", index);
+        return nullptr;
+    }
+    index++; // consume ':'
+
+    if(index >= tokens.size() || tokens[index].type != Token::Type::Identifier) {
+        fprintf(stderr, "Error: Expected type identifier after ':' at token %zu\n", index);
+        return nullptr;
+    }
+    Token type_token = tokens[index++]; // consume type identifier
+    auto type_node = std::make_unique<AST::Type>(type_token);
+    type_node->set_source_ref(source);
+    DBG_PRINT("Parsed type");
+
+    if(index >= tokens.size() || tokens[index].type != Token::Type::Equals) {
+        fprintf(stderr, "Error: Expected '=' after identifier at token %zu\n", index);
+        return nullptr;
+    }
+    index++; // consume '='
+
+    std::unique_ptr<AST::Node> expression = parse_expression(ast, tokens, source, index);
+    if(!expression) {
+        fprintf(stderr, "Error: Failed to parse expression after '=' at token %zu\n", index);
+        return nullptr;
+    }
+
+    if(index >= tokens.size() || tokens[index].type != Token::Type::Semicolon) {
+        fprintf(stderr, "Error: Expected ';' after expression at token %zu\n", index);
+        return nullptr;
+    }
+
+    index++; // consume ';'
+
+    // Construct AST node for variable declaration
+    std::unique_ptr<AST::VariableDeclaration> var_decl_node = std::make_unique<AST::VariableDeclaration>();
+    var_decl_node->children.push_back(std::move(identifier_node));
+    var_decl_node->children.push_back(std::move(type_node));
+    var_decl_node->children.push_back(std::move(expression));
+
+    return var_decl_node;
+}
+
+std::unique_ptr<AST::Node> parse_statement(AST& ast, const std::vector<Token>& tokens, char const* const source, size_t& index) {
     if(index >= tokens.size()) {
-        return;
+        return nullptr;
     }
 
     const Token& token = tokens[index];
     
     switch(token.type) {
+        case Token::Type::Unknown: {
+            fprintf(stderr, "Error: Unknown token type %d at token %zu\n", (int)token.type, index);
+            return nullptr;
+        } break;
         case Token::Type::Intrinsic_Print: {
-            parse_intrinsic_print(ast, tokens, source, index);
+            return parse_intrinsic_print(ast, tokens, source, index);
+        } break;
+        case Token::Type::Keyword_Let: {
+            return parse_variable_declaration(ast, tokens, source, index);
+        } break;
+        case Token::Type::Identifier:
+        case Token::Type::Literal_Number: {
+            std::unique_ptr<AST::Node> expr = parse_expression(ast, tokens, source, index);
+            if(!expr) {
+                return nullptr;
+            }
+            if(index >= tokens.size() || tokens[index].type != Token::Type::Semicolon) {
+                fprintf(stderr, "Error: Expected ';' after expression at token %zu\n", index);
+                return nullptr;
+            }
+            index++; // consume ';' 
+            return expr;
         } break;
         default: {
             fprintf(stderr, "Error: Unexpected token type %d at token %zu\n", (int)token.type, index);
-            return;
+            return nullptr;
         } break;
     }
 }
@@ -544,8 +716,15 @@ AST parse(const std::vector<Token>& tokens, const char* source) {
     size_t index = 0;
 
     while(index < tokens.size() && tokens[index].type != Token::Type::_EOF) {
-        parse_statement(ast, tokens, source, index);
-    }
+        std::unique_ptr<AST::Node> stmt = parse_statement(ast, tokens, source, index);
+        if(stmt) {
+            ast.root->children.push_back(std::move(stmt));
+        } else {
+            fprintf(stderr, "Error: Failed to parse statement at token %zu\n", index);
+            ast.root = nullptr; // Invalidate AST on error
+            break;
+        }
+    }   
 
     return ast;
 }
@@ -558,6 +737,9 @@ enum class BytecodeOp : uint32_t {
     DIVIDE = 5,
     PUSH_CONST = 6,
     POP = 7,
+    RESERVE = 8, // <how much> 
+    STORE = 9, // <where>
+    LOAD = 10, // <where>
 };
 
 CompiledModule codegen_from_ast(const AST& ast) {
@@ -565,6 +747,8 @@ CompiledModule codegen_from_ast(const AST& ast) {
     DBG_PRINT("Generating code from AST");
 
     CompiledModule module;
+
+    std::map<std::string, uint32_t> variable_stack_offset_table{};
 
     // dfs nodes
     std::function<void(const AST::Node*)> dfs;
@@ -578,7 +762,64 @@ CompiledModule codegen_from_ast(const AST& ast) {
             }
             return;
         }
-        else if(const AST::IntrinsicPrint* print_node = dynamic_cast<const AST::IntrinsicPrint*>(node); print_node) {
+        if(const AST::VariableDeclaration* var_decl_node = dynamic_cast<const AST::VariableDeclaration*>(node); var_decl_node) {
+            // Generate bytecode for variable declaration
+            if(var_decl_node->children.size() != 3) {
+                fprintf(stderr, "Error: VariableDeclaration node has %zu children, expected 3\n", var_decl_node->children.size());
+                return;
+            }
+            const AST::Node* identifier = var_decl_node->children[0].get();
+            const AST::Node* type = var_decl_node->children[1].get();
+            const AST::Node* expression = var_decl_node->children[2].get();
+
+            const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(identifier);
+            if(!id_node) {
+                fprintf(stderr, "Error: First child of VariableDeclaration is not Identifier\n");
+                return;
+            }
+            char const* lexeme = ast.source + id_node->token.pos;
+            uint32_t length = id_node->token.length;
+            std::string var_name(lexeme, length);
+            DBG_PRINT("Declaring variable: %s", var_name.c_str());
+            if(variable_stack_offset_table.find(var_name) != variable_stack_offset_table.end()) {
+                fprintf(stderr, "Error: Variable %s already declared\n", var_name.c_str());
+                return;
+            }
+            // Reserve space on stack for variable
+            uint32_t var_offset = variable_stack_offset_table.size();
+            variable_stack_offset_table[var_name] = var_offset * sizeof(uint64_t);
+
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::RESERVE));
+            module.bytecode.push_back(sizeof(uint64_t)); // reserve 8 bytes for u64
+
+            // Generate code for expression
+            dfs(expression);
+            
+            // Store top of stack into variable location
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
+            module.bytecode.push_back(var_offset * sizeof(uint64_t));
+            
+            return;
+        }
+
+        if(const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(node); id_node) {
+            // Load variable value onto stack
+            char const* lexeme = ast.source + id_node->token.pos;
+            uint32_t length = id_node->token.length;
+            std::string var_name(lexeme, length);
+            DBG_PRINT("Loading variable: %s", var_name.c_str());
+            auto it = variable_stack_offset_table.find(var_name);
+            if(it == variable_stack_offset_table.end()) {
+                fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
+                return;
+            }
+            uint32_t var_offset = it->second;
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
+            module.bytecode.push_back(var_offset);
+            return;
+        }
+        
+        if(const AST::IntrinsicPrint* print_node = dynamic_cast<const AST::IntrinsicPrint*>(node); print_node) {
             // Generate bytecode for @print
             if(print_node->children.size() != 1) {
                 fprintf(stderr, "Error: @print node has %zu children, expected 1\n", print_node->children.size());
@@ -589,7 +830,8 @@ CompiledModule codegen_from_ast(const AST& ast) {
             module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PRINT));
             return;
         }
-        else if(const AST::NumberLiteral* number_node = dynamic_cast<const AST::NumberLiteral*>(node); number_node) {
+        
+        if(const AST::NumberLiteral* number_node = dynamic_cast<const AST::NumberLiteral*>(node); number_node) {
             // Convert number token to integer
             char const* lexeme = ast.source + number_node->token.pos;
             uint32_t length = number_node->token.length;
@@ -603,15 +845,23 @@ CompiledModule codegen_from_ast(const AST& ast) {
             module.bytecode.push_back(const_index);
             return;
         }
-        else if(const AST::BinaryExpression* binary_node = dynamic_cast<const AST::BinaryExpression*>(node); binary_node) {
+        
+        if(const AST::BinaryExpression* binary_node = dynamic_cast<const AST::BinaryExpression*>(node); binary_node) {
             if(binary_node->children.size() != 2) {
                 fprintf(stderr, "Error: BinaryExpression node has %zu children, expected 2\n", binary_node->children.size());
                 return;
             }
             const AST::Node* lhs = binary_node->children[0].get();
             const AST::Node* rhs = binary_node->children[1].get();
-            dfs(lhs);
-            dfs(rhs);
+            
+            if(binary_node->operator_token.type == Token::Type::Equals) {
+                // For assignment, rhs is evaluated first
+                dfs(rhs);
+            }
+            else {
+                dfs(lhs);
+                dfs(rhs);
+            }
 
             switch(binary_node->operator_token.type) {
                 case Token::Type::Plus:
@@ -626,13 +876,37 @@ CompiledModule codegen_from_ast(const AST& ast) {
                 case Token::Type::Slash:
                     module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::DIVIDE));
                     break;
+                case Token::Type::Equals:
+                    if(!lhs) {
+                        fprintf(stderr, "Error: Assignment target is null\n");
+                        return;
+                    }
+                    if(const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(lhs); id_node) {
+                        char const* lexeme = ast.source + id_node->token.pos;
+                        uint32_t length = id_node->token.length;
+                        std::string var_name(lexeme, length);
+                        DBG_PRINT("Assigning to variable: %s", var_name.c_str());
+                        auto it = variable_stack_offset_table.find(var_name);
+                        if(it == variable_stack_offset_table.end()) {
+                            fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
+                            return;
+                        }
+                        uint32_t var_offset = it->second;
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
+                        module.bytecode.push_back(var_offset);
+                    } else {
+                        fprintf(stderr, "Error: Assignment target is not an Identifier\n");
+                        return;
+                    }
+                    break;
                 default:
                     fprintf(stderr, "Error: Unknown binary operator token type %d\n", (int)binary_node->operator_token.type);
                     return;
             }
             return;
         }
-        else if(const AST::UnaryPrefixExpression* prefix_node = dynamic_cast<const AST::UnaryPrefixExpression*>(node); prefix_node) {
+        
+        if(const AST::UnaryPrefixExpression* prefix_node = dynamic_cast<const AST::UnaryPrefixExpression*>(node); prefix_node) {
             if(prefix_node->children.size() != 1) {
                 fprintf(stderr, "Error: UnaryPrefixExpression node has %zu children, expected 1\n", prefix_node->children.size());
                 return;
@@ -788,6 +1062,50 @@ struct VM {
                     }
                     stack.pop_back();
                     pc += 1;
+                } break;
+                case BytecodeOp::RESERVE: {
+                    if(pc + 1 >= module.bytecode.size()) {
+                        fprintf(stderr, "Error: RESERVE instruction missing operand\n");
+                        return false;
+                    }
+                    uint32_t how_much = module.bytecode[pc + 1];
+                    for(uint32_t i = 0; i < how_much / sizeof(uint64_t); i++) {
+                        stack.push_back(0); // initialize reserved space with zeros
+                    }
+                    pc += 2; // advance past RESERVE and its operand
+                } break;
+                case BytecodeOp::STORE: {
+                    if(pc + 1 >= module.bytecode.size()) {
+                        fprintf(stderr, "Error: STORE instruction missing operand\n");
+                        return false;
+                    }
+                    uint32_t where = module.bytecode[pc + 1];
+                    if(stack.size() < 1) {
+                        fprintf(stderr, "Error: STORE instruction requires at least 1 value on the stack\n");
+                        return false;
+                    }
+                    if(where / sizeof(uint64_t) >= stack.size()) {
+                        fprintf(stderr, "Error: STORE instruction has invalid stack offset %u\n", where);
+                        return false;
+                    }
+                    uint64_t value = stack.back();
+                    stack.pop_back();
+                    stack[where / sizeof(uint64_t)] = value;
+                    pc += 2; // advance past STORE and its operand
+                } break;
+                case BytecodeOp::LOAD: {
+                    if(pc + 1 >= module.bytecode.size()) {
+                        fprintf(stderr, "Error: LOAD instruction missing operand\n");
+                        return false;
+                    }
+                    uint32_t where = module.bytecode[pc + 1];
+                    if(where / sizeof(uint64_t) >= stack.size()) {
+                        fprintf(stderr, "Error: LOAD instruction has invalid stack offset %u\n", where);
+                        return false;
+                    }
+                    uint64_t value = stack[where / sizeof(uint64_t)];
+                    stack.push_back(value);
+                    pc += 2; // advance past LOAD and its operand
                 } break;
                 default: {
                     fprintf(stderr, "Error: Unknown bytecode operation %u at pc %zu\n", (uint32_t)op, pc);
