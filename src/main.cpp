@@ -8,8 +8,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 #include <vector>
+
+#include "lexer.hpp"
+
+using dacite::Token;
 
 #define DBG_PRINT(X, ...) printf(X "\n", ##__VA_ARGS__)
 
@@ -66,159 +69,6 @@ struct CompiledModule {
 
     std::vector<uint32_t> bytecode;
     std::vector<uint64_t> constants;
-};
-
-struct Token {
-    enum class Type : uint8_t {
-        Unknown,
-
-        Keyword_Let,
-
-        Intrinsic_Print,
-        
-        
-        Literal_Number,
-
-        Identifier,
-        
-        Lparen,
-        Rparen,
-        
-        Plus,
-        Minus,
-        Star,
-        Slash,
-
-        Equals,
-
-        Colon,
-        Semicolon,
-
-        _EOF,
-    };
-    Type type;
-    uint16_t length;
-    uint32_t pos;
-};
-
-std::vector<Token> tokenize(const char* source) {
-    std::vector<Token> tokens;
-
-    uint32_t start_pos = 0;
-    uint32_t current_pos = 0;
-
-    while(true) {
-        char c = source[current_pos];
-        if(c == '\0') {
-            tokens.push_back({Token::Type::_EOF, 0, current_pos});
-            break;
-        }
-        else if(c == ' ' || c == '\n' || c == '\r' || c == '\t') {
-            // Skip whitespace
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == '#') {
-            // Comment, skip to end of line
-            while(source[current_pos] != '\0' && source[current_pos] != '\n') {
-                current_pos++;
-            }
-            start_pos = current_pos;
-        } else if(c == '`') {
-            // multiline comment, skip to closing `
-            current_pos++;
-            while(source[current_pos] != '\0' && source[current_pos] != '`') {
-                current_pos++;
-            }
-            start_pos = current_pos;
-        }
-        else if(c == '(') {
-            tokens.push_back({Token::Type::Lparen, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == ')') {
-            tokens.push_back({Token::Type::Rparen, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == ';') {
-            tokens.push_back({Token::Type::Semicolon, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(*(source + current_pos) == '@') {
-            // Intrinsic
-            if(strncmp(source + current_pos, "@print", 6) == 0) {
-                tokens.push_back({Token::Type::Intrinsic_Print, 6, current_pos});
-                current_pos += 6;
-                start_pos = current_pos;
-            } else {
-                fprintf(stderr, "Error: Unknown intrinsic at pos %d\n", current_pos);
-                break;
-            }
-        }
-        else if(c == '+') {
-            tokens.push_back({Token::Type::Plus, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == '-') {
-            tokens.push_back({Token::Type::Minus, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == '*') {
-            tokens.push_back({Token::Type::Star, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == '/') {
-            tokens.push_back({Token::Type::Slash, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c >= '0' && c <= '9') {
-            // Number literal
-            while(source[current_pos] >= '0' && source[current_pos] <= '9') {
-                current_pos++;
-            }
-            uint16_t length = current_pos - start_pos;
-            tokens.push_back({Token::Type::Literal_Number, length, start_pos});
-            start_pos = current_pos;
-        }
-        else if(isalpha(c) || c == '_') {
-            // Identifier or keyword
-            while(isalnum(source[current_pos]) || source[current_pos] == '_') {
-                current_pos++;
-            }
-            uint16_t length = current_pos - start_pos;
-            if(length == 3 && strncmp(source + start_pos, "let", 3) == 0) {
-                tokens.push_back({Token::Type::Keyword_Let, length, start_pos});
-            } else {
-                tokens.push_back({Token::Type::Identifier, length, start_pos});
-            }
-            start_pos = current_pos;
-        }
-        else if(c == '=') {
-            tokens.push_back({Token::Type::Equals, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-        else if(c == ':') {
-            tokens.push_back({Token::Type::Colon, 1, current_pos});
-            current_pos++;
-            start_pos = current_pos;
-        }
-
-        else {
-            fprintf(stderr, "Error: Unknown character '%c' at pos %d\n", c, current_pos);
-            exit(1); // todo: clean exit
-            break;
-        }
-    }
-
-    return tokens;
 };
 
 struct AST {
@@ -293,7 +143,7 @@ struct AST {
         
         void print(int indent = 0) const override {
             // Extract the actual number value from the token
-            std::string lexeme(source_ref + token.pos, token.length);
+            std::string lexeme{token.lexeme};
             printf("%*sNumberLiteral: %s\n", indent * 2, "", lexeme.c_str());
             for (const auto& child : children) {
                 if (child) {
@@ -315,7 +165,7 @@ struct AST {
         
         void print(int indent = 0) const override {
             // Extract the actual identifier name from the token
-            std::string lexeme(source_ref + token.pos, token.length);
+            std::string lexeme{token.lexeme};
             printf("%*sIdentifier: %s\n", indent * 2, "", lexeme.c_str());
             for (const auto& child : children) {
                 if (child) {
@@ -362,7 +212,7 @@ struct AST {
         BinaryExpression(const Token& op) : operator_token(op) {}
         
         void print(int indent = 0) const override {
-            std::string lexeme(source_ref + operator_token.pos, operator_token.length);
+            std::string lexeme{operator_token.lexeme};
             printf("%*sBinaryExpression: %s\n", indent * 2, "", lexeme.c_str());
             for (const auto& child : children) {
                 if (child) {
@@ -383,7 +233,7 @@ struct AST {
         UnaryPrefixExpression(const Token& op) : operator_token(op) {}
         
         void print(int indent = 0) const override {
-            std::string lexeme(source_ref + operator_token.pos, operator_token.length);
+            std::string lexeme{operator_token.lexeme};
             printf("%*sUnaryPrefixExpression: %s\n", indent * 2, "", lexeme.c_str());
             for (const auto& child : children) {
                 if (child) {
@@ -404,7 +254,7 @@ struct AST {
         UnaryPostfixExpression(const Token& op) : operator_token(op) {}
         
         void print(int indent = 0) const override {
-            std::string lexeme(source_ref + operator_token.pos, operator_token.length);
+            std::string lexeme{operator_token.lexeme};
             printf("%*sUnaryPostfixExpression: %s\n", indent * 2, "", lexeme.c_str());
             for (const auto& child : children) {
                 if (child) {
@@ -777,9 +627,7 @@ CompiledModule codegen_from_ast(const AST& ast) {
                 fprintf(stderr, "Error: First child of VariableDeclaration is not Identifier\n");
                 return;
             }
-            char const* lexeme = ast.source + id_node->token.pos;
-            uint32_t length = id_node->token.length;
-            std::string var_name(lexeme, length);
+            std::string var_name{id_node->token.lexeme};
             DBG_PRINT("Declaring variable: %s", var_name.c_str());
             if(variable_stack_offset_table.find(var_name) != variable_stack_offset_table.end()) {
                 fprintf(stderr, "Error: Variable %s already declared\n", var_name.c_str());
@@ -804,9 +652,7 @@ CompiledModule codegen_from_ast(const AST& ast) {
 
         if(const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(node); id_node) {
             // Load variable value onto stack
-            char const* lexeme = ast.source + id_node->token.pos;
-            uint32_t length = id_node->token.length;
-            std::string var_name(lexeme, length);
+            std::string var_name{id_node->token.lexeme};
             DBG_PRINT("Loading variable: %s", var_name.c_str());
             auto it = variable_stack_offset_table.find(var_name);
             if(it == variable_stack_offset_table.end()) {
@@ -833,10 +679,7 @@ CompiledModule codegen_from_ast(const AST& ast) {
         
         if(const AST::NumberLiteral* number_node = dynamic_cast<const AST::NumberLiteral*>(node); number_node) {
             // Convert number token to integer
-            char const* lexeme = ast.source + number_node->token.pos;
-            uint32_t length = number_node->token.length;
-
-            uint64_t value = strtoull(std::string(lexeme, length).c_str(), nullptr, 10);
+            uint64_t value = strtoull(number_node->token.lexeme.data(), nullptr, 10);
             // Add constant to module
             uint32_t const_index = module.constants.size();
             module.constants.push_back(value);
@@ -882,9 +725,7 @@ CompiledModule codegen_from_ast(const AST& ast) {
                         return;
                     }
                     if(const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(lhs); id_node) {
-                        char const* lexeme = ast.source + id_node->token.pos;
-                        uint32_t length = id_node->token.length;
-                        std::string var_name(lexeme, length);
+                        std::string var_name{id_node->token.lexeme};
                         DBG_PRINT("Assigning to variable: %s", var_name.c_str());
                         auto it = variable_stack_offset_table.find(var_name);
                         if(it == variable_stack_offset_table.end()) {
@@ -942,12 +783,14 @@ CompiledModule codegen_from_ast(const AST& ast) {
 CompiledModule compile(const char* source) {    
     // Dummy compilation function
     DBG_PRINT("Compiling source:\n%s", source);
-    
-    std::vector<Token> tokens = tokenize(source);
+
+    auto lexer = dacite::Lexer::with_source(source);
+    std::vector<Token> tokens = lexer.tokenize_all();
 
     if constexpr(ENABLE_TOKEN_DEBUG) {
         for(const Token& token : tokens) {
-            DBG_PRINT("Token: type=%d, length=%d, pos=%d, lexeme=%.*s", (int)token.type, token.length, token.pos, token.length, source + token.pos);
+            // DBG_PRINT("Token: type=%d, length=%d, pos=%d, lexeme=%.*s", (int)token.type, token.lexeme.length(), token., token.lexeme.length(), token.lexeme.data());
+            DBG_PRINT("Token[%d:%d]: type = %s, lexeme = %.*s", token.line, token.column, dacite::token_type_to_string_map[token.type].data(), (int)token.lexeme.length(), token.lexeme.data());
         }
     }
 
