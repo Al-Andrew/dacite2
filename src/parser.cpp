@@ -5,6 +5,65 @@
 
 namespace dacite {
 
+    // Print function implementation for AST nodes
+    void AST::print_node(NodeIndex index, int indent) const {
+        if (index >= nodes.size()) {
+            printf("%*s(invalid node index: %u)\n", indent * 2, "", index);
+            return;
+        }
+        
+        std::visit([this, indent](const auto& node) {
+            using T = std::decay_t<decltype(node)>;
+            
+            if constexpr (std::is_same_v<T, Module>) {
+                printf("%*sModule\n", indent * 2, "");
+                for (NodeIndex statement_index : node.statements) {
+                    print_node(statement_index, indent + 1);
+                }
+            } else if constexpr (std::is_same_v<T, Statement>) {
+                printf("%*sStatement\n", indent * 2, "");
+                for (NodeIndex child_index : node.children) {
+                    print_node(child_index, indent + 1);
+                }
+            } else if constexpr (std::is_same_v<T, VariableDeclaration>) {
+                printf("%*sVariableDeclaration\n", indent * 2, "");
+                print_node(node.identifier, indent + 1);
+                print_node(node.type, indent + 1);
+                print_node(node.initializer, indent + 1);
+            } else if constexpr (std::is_same_v<T, IntrinsicPrint>) {
+                printf("%*sIntrinsicPrint (@print)\n", indent * 2, "");
+                print_node(node.expression, indent + 1);
+            } else if constexpr (std::is_same_v<T, NumberLiteral>) {
+                std::string lexeme{node.token.lexeme};
+                printf("%*sNumberLiteral: %s\n", indent * 2, "", lexeme.c_str());
+            } else if constexpr (std::is_same_v<T, Identifier>) {
+                std::string lexeme{node.token.lexeme};
+                printf("%*sIdentifier: %s\n", indent * 2, "", lexeme.c_str());
+            } else if constexpr (std::is_same_v<T, Type>) {
+                std::string lexeme{node.token.lexeme};
+                printf("%*sType: %s\n", indent * 2, "", lexeme.c_str());
+            } else if constexpr (std::is_same_v<T, Expression>) {
+                printf("%*sExpression\n", indent * 2, "");
+                for (NodeIndex child_index : node.children) {
+                    print_node(child_index, indent + 1);
+                }
+            } else if constexpr (std::is_same_v<T, BinaryExpression>) {
+                std::string lexeme{node.operator_token.lexeme};
+                printf("%*sBinaryExpression: %s\n", indent * 2, "", lexeme.c_str());
+                print_node(node.left, indent + 1);
+                print_node(node.right, indent + 1);
+            } else if constexpr (std::is_same_v<T, UnaryPrefixExpression>) {
+                std::string lexeme{node.operator_token.lexeme};
+                printf("%*sUnaryPrefixExpression: %s\n", indent * 2, "", lexeme.c_str());
+                print_node(node.operand, indent + 1);
+            } else if constexpr (std::is_same_v<T, UnaryPostfixExpression>) {
+                std::string lexeme{node.operator_token.lexeme};
+                printf("%*sUnaryPostfixExpression: %s\n", indent * 2, "", lexeme.c_str());
+                print_node(node.operand, indent + 1);
+            }
+        }, nodes[index]);
+    }
+
     Parser::Parser(const std::vector<Token>& tokens)
         : tokens(tokens), index(0) {
     }
@@ -82,49 +141,49 @@ namespace dacite {
         }
     }
 
-    auto Parser::parse_expression_bp(int min_bp) -> std::unique_ptr<AST::Node> {
+    auto Parser::parse_expression_bp(int min_bp) -> NodeIndex {
         DBG_PRINT("parse_expression_bp: index=%zu, min_bp=%d", index, min_bp);
 
         if (is_at_end()) {
             fprintf(stderr, "Error: Unexpected end of tokens while parsing expression at token %zu\n", index);
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         const auto lhs_token = tokens[index++];
-        std::unique_ptr<AST::Node> lhs;
+        NodeIndex lhs = INVALID_NODE_INDEX;
         
         switch (lhs_token.type) {
             case Token::Type::Literal_Number: {
-                lhs = std::make_unique<AST::NumberLiteral>(lhs_token);
+                lhs = ast.add_node(NumberLiteral(lhs_token));
                 DBG_PRINT("lhs is NumberLiteral");
             } break;
             case Token::Type::Identifier: {
-                lhs = std::make_unique<AST::Identifier>(lhs_token);
+                lhs = ast.add_node(Identifier(lhs_token));
                 DBG_PRINT("lhs is Identifier");
             } break;
             case Token::Type::Lparen: {
                 lhs = parse_expression_bp(0);
-                if(!lhs) {
-                    return nullptr;
+                if(lhs == INVALID_NODE_INDEX) {
+                    return INVALID_NODE_INDEX;
                 }
                 if (!consume_token(Token::Type::Rparen, ")")) {
-                    return nullptr;
+                    return INVALID_NODE_INDEX;
                 }
             } break;
             case Token::Type::Minus:
             case Token::Type::Plus: {
                 auto [_, r_bp] = get_prefix_binding(lhs_token.type);
                 auto rhs = parse_expression_bp(r_bp);
-                if(!rhs) {
-                    return nullptr;
+                if(rhs == INVALID_NODE_INDEX) {
+                    return INVALID_NODE_INDEX;
                 }
-                auto prefix_node = std::make_unique<AST::UnaryPrefixExpression>(lhs_token);
-                prefix_node->children.push_back(std::move(rhs));
-                lhs = std::move(prefix_node);
+                UnaryPrefixExpression prefix_node(lhs_token);
+                prefix_node.operand = rhs;
+                lhs = ast.add_node(std::move(prefix_node));
             } break;
             default:
                 fprintf(stderr, "Error: Unexpected token type %d at token %zu\n", (int)lhs_token.type, index - 1);
-                return nullptr;
+                return INVALID_NODE_INDEX;
         }
 
         while(!is_at_end()) {
@@ -138,13 +197,13 @@ namespace dacite {
                 }
                 index++; // consume operator
                 auto rhs = parse_expression_bp(r_bp);
-                if(!rhs) {
-                    return nullptr;
+                if(rhs == INVALID_NODE_INDEX) {
+                    return INVALID_NODE_INDEX;
                 }
-                auto binary_node = std::make_unique<AST::BinaryExpression>(op_token);
-                binary_node->children.push_back(std::move(lhs));
-                binary_node->children.push_back(std::move(rhs));
-                lhs = std::move(binary_node);
+                BinaryExpression binary_node(op_token);
+                binary_node.left = lhs;
+                binary_node.right = rhs;
+                lhs = ast.add_node(std::move(binary_node));
                 continue;
             }
             
@@ -154,9 +213,9 @@ namespace dacite {
                     break;
                 }
                 index++; // consume operator
-                auto postfix_node = std::make_unique<AST::UnaryPostfixExpression>(op_token);
-                postfix_node->children.push_back(std::move(lhs));
-                lhs = std::move(postfix_node);
+                UnaryPostfixExpression postfix_node(op_token);
+                postfix_node.operand = lhs;
+                lhs = ast.add_node(std::move(postfix_node));
                 continue;
             }
             break; // No more operators
@@ -165,100 +224,98 @@ namespace dacite {
         return lhs;
     }
 
-    auto Parser::parse_expression() -> std::unique_ptr<AST::Node> {
+    auto Parser::parse_expression() -> NodeIndex {
         if (is_at_end()) {
             fprintf(stderr, "Error: Unexpected end of tokens while parsing expression at token %zu\n", index);
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         return parse_expression_bp(0);
     }
 
-    auto Parser::parse_intrinsic_print() -> std::unique_ptr<AST::Node> {
+    auto Parser::parse_intrinsic_print() -> NodeIndex {
         DBG_PRINT("parse_intrinsic_print: index=%zu", index);
         
         // Expecting: @print ( <expression> ) ;
         if (!consume_token(Token::Type::Intrinsic_Print, "@print")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         if (!consume_token(Token::Type::Lparen, "( after @print")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         auto expression = parse_expression();
-        if (!expression) {
+        if (expression == INVALID_NODE_INDEX) {
             fprintf(stderr, "Error: Failed to parse expression after @print at token %zu\n", index);
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         if (!consume_token(Token::Type::Rparen, ") after expression")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         if (!consume_token(Token::Type::Semicolon, "; after )")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         // Construct AST node for @print statement
-        auto print_node = std::make_unique<AST::IntrinsicPrint>();
-        print_node->children.push_back(std::move(expression));
-
-        return print_node;
+        IntrinsicPrint print_node;
+        print_node.expression = expression;
+        return ast.add_node(std::move(print_node));
     }
 
-    auto Parser::parse_variable_declaration() -> std::unique_ptr<AST::Node> {
+    auto Parser::parse_variable_declaration() -> NodeIndex {
         DBG_PRINT("parse_variable_declaration: index=%zu", index);
         
         // Expecting: let <identifier> : <type> = <expression> ;
         if (!consume_token(Token::Type::Keyword_Let, "let")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         if (!expect_token(Token::Type::Identifier, "identifier after 'let'")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
         Token identifier_token = tokens[index++]; // consume identifier
-        auto identifier_node = std::make_unique<AST::Identifier>(identifier_token);
+        auto identifier_index = ast.add_node(Identifier(identifier_token));
         DBG_PRINT("Parsed identifier");
 
         if (!consume_token(Token::Type::Colon, ": after identifier")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         if (!expect_token(Token::Type::Identifier, "type identifier after ':'")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
         Token type_token = tokens[index++]; // consume type identifier
-        auto type_node = std::make_unique<AST::Type>(type_token);
+        auto type_index = ast.add_node(Type(type_token));
         DBG_PRINT("Parsed type");
 
         if (!consume_token(Token::Type::Equals, "= after type")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         auto expression = parse_expression();
-        if (!expression) {
+        if (expression == INVALID_NODE_INDEX) {
             fprintf(stderr, "Error: Failed to parse expression after '=' at token %zu\n", index);
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         if (!consume_token(Token::Type::Semicolon, "; after expression")) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         // Construct AST node for variable declaration
-        auto var_decl_node = std::make_unique<AST::VariableDeclaration>();
-        var_decl_node->children.push_back(std::move(identifier_node));
-        var_decl_node->children.push_back(std::move(type_node));
-        var_decl_node->children.push_back(std::move(expression));
-
-        return var_decl_node;
+        VariableDeclaration var_decl_node;
+        var_decl_node.identifier = identifier_index;
+        var_decl_node.type = type_index;
+        var_decl_node.initializer = expression;
+        return ast.add_node(std::move(var_decl_node));
     }
 
-    auto Parser::parse_statement() -> std::unique_ptr<AST::Node> {
+    auto Parser::parse_statement() -> NodeIndex {
         if (is_at_end()) {
-            return nullptr;
+            return INVALID_NODE_INDEX;
         }
 
         const Token& token = current_token();
@@ -266,7 +323,7 @@ namespace dacite {
         switch(token.type) {
             case Token::Type::Unknown: {
                 fprintf(stderr, "Error: Unknown token type %d at token %zu\n", (int)token.type, index);
-                return nullptr;
+                return INVALID_NODE_INDEX;
             } break;
             case Token::Type::Intrinsic_Print: {
                 return parse_intrinsic_print();
@@ -277,17 +334,17 @@ namespace dacite {
             case Token::Type::Identifier:
             case Token::Type::Literal_Number: {
                 auto expr = parse_expression();
-                if (!expr) {
-                    return nullptr;
+                if (expr == INVALID_NODE_INDEX) {
+                    return INVALID_NODE_INDEX;
                 }
                 if (!consume_token(Token::Type::Semicolon, "; after expression")) {
-                    return nullptr;
+                    return INVALID_NODE_INDEX;
                 }
                 return expr;
             } break;
             default: {
                 fprintf(stderr, "Error: Unexpected token type %d at token %zu\n", (int)token.type, index);
-                return nullptr;
+                return INVALID_NODE_INDEX;
             } break;
         }
     }
@@ -295,15 +352,18 @@ namespace dacite {
     auto Parser::parse() -> AST {
         DBG_PRINT("Parsing %zu tokens", tokens.size());
 
-        ast.root = std::make_unique<AST::Module>();
+        ast.root_index = ast.add_node(Module());
 
         while (!is_at_end() && current_token().type != Token::Type::_EOF) {
             auto stmt = parse_statement();
-            if (stmt) {
-                ast.root->children.push_back(std::move(stmt));
+            if (stmt != INVALID_NODE_INDEX) {
+                auto* module_node = ast.get_node<Module>(ast.root_index);
+                if (module_node) {
+                    module_node->statements.push_back(stmt);
+                }
             } else {
                 fprintf(stderr, "Error: Failed to parse statement at token %zu\n", index);
-                ast.root = nullptr; // Invalidate AST on error
+                ast.root_index = INVALID_NODE_INDEX; // Invalidate AST on error
                 break;
             }
         }   

@@ -95,179 +95,155 @@ CompiledModule codegen_from_ast(const AST& ast) {
     std::map<std::string, uint32_t> variable_stack_offset_table{};
 
     // dfs nodes
-    std::function<void(const AST::Node*)> dfs;
-    dfs = [&](const AST::Node* node) {
-        if(const AST::Module* module_node = dynamic_cast<const AST::Module*>(node); module_node) {
-            // Traverse children
-            for(const auto& child : module_node->children) {
-                if(child) {
-                    dfs(child.get());
+    std::function<void(dacite::NodeIndex)> dfs;
+    dfs = [&](dacite::NodeIndex node_index) {
+        if (node_index == dacite::INVALID_NODE_INDEX || node_index >= ast.nodes.size()) {
+            return;
+        }
+        
+        std::visit([&](const auto& node) {
+            using T = std::decay_t<decltype(node)>;
+            
+            if constexpr (std::is_same_v<T, dacite::Module>) {
+                // Traverse children
+                for(dacite::NodeIndex statement_index : node.statements) {
+                    dfs(statement_index);
                 }
-            }
-            return;
-        }
-        if(const AST::VariableDeclaration* var_decl_node = dynamic_cast<const AST::VariableDeclaration*>(node); var_decl_node) {
-            // Generate bytecode for variable declaration
-            if(var_decl_node->children.size() != 3) {
-                fprintf(stderr, "Error: VariableDeclaration node has %zu children, expected 3\n", var_decl_node->children.size());
                 return;
             }
-            const AST::Node* identifier = var_decl_node->children[0].get();
-            const AST::Node* type = var_decl_node->children[1].get();
-            const AST::Node* expression = var_decl_node->children[2].get();
+            else if constexpr (std::is_same_v<T, dacite::VariableDeclaration>) {
+                // Generate bytecode for variable declaration
+                const dacite::Identifier* id_node = ast.get_node<dacite::Identifier>(node.identifier);
+                if(!id_node) {
+                    fprintf(stderr, "Error: VariableDeclaration identifier is not an Identifier node\n");
+                    return;
+                }
+                std::string var_name{id_node->token.lexeme};
+                DBG_PRINT("Declaring variable: %s", var_name.c_str());
+                if(variable_stack_offset_table.find(var_name) != variable_stack_offset_table.end()) {
+                    fprintf(stderr, "Error: Variable %s already declared\n", var_name.c_str());
+                    return;
+                }
+                // Reserve space on stack for variable
+                uint32_t var_offset = variable_stack_offset_table.size();
+                variable_stack_offset_table[var_name] = var_offset * sizeof(uint64_t);
 
-            const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(identifier);
-            if(!id_node) {
-                fprintf(stderr, "Error: First child of VariableDeclaration is not Identifier\n");
-                return;
-            }
-            std::string var_name{id_node->token.lexeme};
-            DBG_PRINT("Declaring variable: %s", var_name.c_str());
-            if(variable_stack_offset_table.find(var_name) != variable_stack_offset_table.end()) {
-                fprintf(stderr, "Error: Variable %s already declared\n", var_name.c_str());
-                return;
-            }
-            // Reserve space on stack for variable
-            uint32_t var_offset = variable_stack_offset_table.size();
-            variable_stack_offset_table[var_name] = var_offset * sizeof(uint64_t);
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::RESERVE));
+                module.bytecode.push_back(sizeof(uint64_t)); // reserve 8 bytes for u64
 
-            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::RESERVE));
-            module.bytecode.push_back(sizeof(uint64_t)); // reserve 8 bytes for u64
-
-            // Generate code for expression
-            dfs(expression);
-            
-            // Store top of stack into variable location
-            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
-            module.bytecode.push_back(var_offset * sizeof(uint64_t));
-            
-            return;
-        }
-
-        if(const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(node); id_node) {
-            // Load variable value onto stack
-            std::string var_name{id_node->token.lexeme};
-            DBG_PRINT("Loading variable: %s", var_name.c_str());
-            auto it = variable_stack_offset_table.find(var_name);
-            if(it == variable_stack_offset_table.end()) {
-                fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
+                // Generate code for expression
+                dfs(node.initializer);
+                
+                // Store top of stack into variable location
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
+                module.bytecode.push_back(var_offset * sizeof(uint64_t));
+                
                 return;
             }
-            uint32_t var_offset = it->second;
-            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
-            module.bytecode.push_back(var_offset);
-            return;
-        }
-        
-        if(const AST::IntrinsicPrint* print_node = dynamic_cast<const AST::IntrinsicPrint*>(node); print_node) {
-            // Generate bytecode for @print
-            if(print_node->children.size() != 1) {
-                fprintf(stderr, "Error: @print node has %zu children, expected 1\n", print_node->children.size());
+            else if constexpr (std::is_same_v<T, dacite::Identifier>) {
+                // Load variable value onto stack
+                std::string var_name{node.token.lexeme};
+                DBG_PRINT("Loading variable: %s", var_name.c_str());
+                auto it = variable_stack_offset_table.find(var_name);
+                if(it == variable_stack_offset_table.end()) {
+                    fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
+                    return;
+                }
+                uint32_t var_offset = it->second;
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
+                module.bytecode.push_back(var_offset);
                 return;
             }
-            const AST::Node* child = print_node->children[0].get();
-            dfs(child);
-            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PRINT));
-            return;
-        }
-        
-        if(const AST::NumberLiteral* number_node = dynamic_cast<const AST::NumberLiteral*>(node); number_node) {
-            // Convert number token to integer
-            uint64_t value = strtoull(number_node->token.lexeme.data(), nullptr, 10);
-            // Add constant to module
-            uint32_t const_index = module.constants.size();
-            module.constants.push_back(value);
-            // Generate bytecode to push constant
-            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
-            module.bytecode.push_back(const_index);
-            return;
-        }
-        
-        if(const AST::BinaryExpression* binary_node = dynamic_cast<const AST::BinaryExpression*>(node); binary_node) {
-            if(binary_node->children.size() != 2) {
-                fprintf(stderr, "Error: BinaryExpression node has %zu children, expected 2\n", binary_node->children.size());
+            else if constexpr (std::is_same_v<T, dacite::IntrinsicPrint>) {
+                // Generate bytecode for @print
+                dfs(node.expression);
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PRINT));
                 return;
             }
-            const AST::Node* lhs = binary_node->children[0].get();
-            const AST::Node* rhs = binary_node->children[1].get();
-            
-            if(binary_node->operator_token.type == Token::Type::Equals) {
-                // For assignment, rhs is evaluated first
-                dfs(rhs);
+            else if constexpr (std::is_same_v<T, dacite::NumberLiteral>) {
+                // Convert number token to integer
+                uint64_t value = strtoull(node.token.lexeme.data(), nullptr, 10);
+                // Add constant to module
+                uint32_t const_index = module.constants.size();
+                module.constants.push_back(value);
+                // Generate bytecode to push constant
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+                module.bytecode.push_back(const_index);
+                return;
             }
-            else {
-                dfs(lhs);
-                dfs(rhs);
-            }
+            else if constexpr (std::is_same_v<T, dacite::BinaryExpression>) {
+                if(node.operator_token.type == Token::Type::Equals) {
+                    // For assignment, rhs is evaluated first
+                    dfs(node.right);
+                }
+                else {
+                    dfs(node.left);
+                    dfs(node.right);
+                }
 
-            switch(binary_node->operator_token.type) {
-                case Token::Type::Plus:
-                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD));
-                    break;
-                case Token::Type::Minus:
-                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
-                    break;
-                case Token::Type::Star:
-                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::MULTIPLY));
-                    break;
-                case Token::Type::Slash:
-                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::DIVIDE));
-                    break;
-                case Token::Type::Equals:
-                    if(!lhs) {
-                        fprintf(stderr, "Error: Assignment target is null\n");
-                        return;
-                    }
-                    if(const AST::Identifier* id_node = dynamic_cast<const AST::Identifier*>(lhs); id_node) {
-                        std::string var_name{id_node->token.lexeme};
-                        DBG_PRINT("Assigning to variable: %s", var_name.c_str());
-                        auto it = variable_stack_offset_table.find(var_name);
-                        if(it == variable_stack_offset_table.end()) {
-                            fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
+                switch(node.operator_token.type) {
+                    case Token::Type::Plus:
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD));
+                        break;
+                    case Token::Type::Minus:
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
+                        break;
+                    case Token::Type::Star:
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::MULTIPLY));
+                        break;
+                    case Token::Type::Slash:
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::DIVIDE));
+                        break;
+                    case Token::Type::Equals:
+                        if(node.left == dacite::INVALID_NODE_INDEX) {
+                            fprintf(stderr, "Error: Assignment target is invalid\n");
                             return;
                         }
-                        uint32_t var_offset = it->second;
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
-                        module.bytecode.push_back(var_offset);
-                    } else {
-                        fprintf(stderr, "Error: Assignment target is not an Identifier\n");
+                        if(const dacite::Identifier* id_node = ast.get_node<dacite::Identifier>(node.left); id_node) {
+                            std::string var_name{id_node->token.lexeme};
+                            DBG_PRINT("Assigning to variable: %s", var_name.c_str());
+                            auto it = variable_stack_offset_table.find(var_name);
+                            if(it == variable_stack_offset_table.end()) {
+                                fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
+                                return;
+                            }
+                            uint32_t var_offset = it->second;
+                            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
+                            module.bytecode.push_back(var_offset);
+                        } else {
+                            fprintf(stderr, "Error: Assignment target is not an Identifier\n");
+                            return;
+                        }
+                        break;
+                    default:
+                        fprintf(stderr, "Error: Unknown binary operator token type %d\n", (int)node.operator_token.type);
                         return;
-                    }
-                    break;
-                default:
-                    fprintf(stderr, "Error: Unknown binary operator token type %d\n", (int)binary_node->operator_token.type);
-                    return;
-            }
-            return;
-        }
-        
-        if(const AST::UnaryPrefixExpression* prefix_node = dynamic_cast<const AST::UnaryPrefixExpression*>(node); prefix_node) {
-            if(prefix_node->children.size() != 1) {
-                fprintf(stderr, "Error: UnaryPrefixExpression node has %zu children, expected 1\n", prefix_node->children.size());
+                }
                 return;
             }
-            const AST::Node* operand = prefix_node->children[0].get();
-            dfs(operand);
-            switch(prefix_node->operator_token.type) {
-                case Token::Type::Minus:
-                    // Negate the top of the stack: PUSH_CONST 0; SUBTRACT
-                    module.constants.push_back(0);
-                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
-                    module.bytecode.push_back(module.constants.size() - 1);
-                    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
-                    break;
-                case Token::Type::Plus:
-                    // No-op for unary plus
-                    break;
-                default:
-                    fprintf(stderr, "Error: Unknown unary prefix operator token type %d\n", (int)prefix_node->operator_token.type);
-                    return;
+            else if constexpr (std::is_same_v<T, dacite::UnaryPrefixExpression>) {
+                dfs(node.operand);
+                switch(node.operator_token.type) {
+                    case Token::Type::Minus:
+                        // Negate the top of the stack: PUSH_CONST 0; SUBTRACT
+                        module.constants.push_back(0);
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+                        module.bytecode.push_back(module.constants.size() - 1);
+                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
+                        break;
+                    case Token::Type::Plus:
+                        // No-op for unary plus
+                        break;
+                    default:
+                        fprintf(stderr, "Error: Unknown unary prefix operator token type %d\n", (int)node.operator_token.type);
+                        return;
+                }
+                return;
             }
-            return;
-        }
+        }, ast.nodes[node_index]);
     };
 
-    dfs(ast.root.get());
+    dfs(ast.root_index);
 
     DBG_PRINT("Generated module with %zu constants", module.constants.size());
 

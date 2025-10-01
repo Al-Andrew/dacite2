@@ -2,10 +2,107 @@
 
 #include "token.hpp"
 #include <vector>
-#include <memory>
+#include <variant>
 #include <string>
+#include <cstdint>
+#include <cstdio>
 
 namespace dacite {
+
+// Forward declarations for all node types
+struct Module;
+struct Statement;
+struct VariableDeclaration;
+struct IntrinsicPrint;
+struct NumberLiteral;
+struct Identifier;
+struct Type;
+struct Expression;
+struct BinaryExpression;
+struct UnaryPrefixExpression;
+struct UnaryPostfixExpression;
+
+// Node variant type containing all possible node types
+using ASTNodeVariant = std::variant<
+    Module,
+    Statement,
+    VariableDeclaration,
+    IntrinsicPrint,
+    NumberLiteral,
+    Identifier,
+    Type,
+    Expression,
+    BinaryExpression,
+    UnaryPrefixExpression,
+    UnaryPostfixExpression
+>;
+
+// Index type for referencing nodes
+using NodeIndex = uint32_t;
+constexpr NodeIndex INVALID_NODE_INDEX = UINT32_MAX;
+
+// Node structure definitions
+struct Module {
+    std::vector<NodeIndex> statements;
+};
+
+struct Statement {
+    std::vector<NodeIndex> children; // Keep generic for base statement
+};
+
+struct VariableDeclaration {
+    NodeIndex identifier;
+    NodeIndex type;
+    NodeIndex initializer;
+};
+
+struct IntrinsicPrint {
+    NodeIndex expression;
+};
+
+struct NumberLiteral {
+    Token token;
+    
+    NumberLiteral(const Token& t) : token(t) {}
+};
+
+struct Identifier {
+    Token token;
+    
+    Identifier(const Token& t) : token(t) {}
+};
+
+struct Type {
+    Token token;
+    
+    Type(const Token& t) : token(t) {}
+};
+
+struct Expression {
+    std::vector<NodeIndex> children; // Keep generic for base expression
+};
+
+struct BinaryExpression {
+    Token operator_token;
+    NodeIndex left;
+    NodeIndex right;
+    
+    BinaryExpression(const Token& op) : operator_token(op), left(INVALID_NODE_INDEX), right(INVALID_NODE_INDEX) {}
+};
+
+struct UnaryPrefixExpression {
+    Token operator_token;
+    NodeIndex operand;
+    
+    UnaryPrefixExpression(const Token& op) : operator_token(op), operand(INVALID_NODE_INDEX) {}
+};
+
+struct UnaryPostfixExpression {
+    Token operator_token;
+    NodeIndex operand;
+    
+    UnaryPostfixExpression(const Token& op) : operator_token(op), operand(INVALID_NODE_INDEX) {}
+};
 
 struct AST {
     // Default constructor
@@ -20,196 +117,41 @@ struct AST {
     AST& operator=(AST&&) = default;
     
     bool is_valid() const {
-        return root != nullptr;
+        return root_index != INVALID_NODE_INDEX;
     }
 
-    struct Node {
-        virtual ~Node() = default;
-        virtual void print(int indent = 0) const {
-            printf("%*sNode (base)\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        virtual const char* get_type_name() const { return "Node"; }
-        std::vector<std::unique_ptr<Node>> children;
-    };
-
-    struct Module : public Node {
-        void print(int indent = 0) const override {
-            printf("%*sModule\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        const char* get_type_name() const override { return "Module"; }
-    };
-
-    struct Statement : public Node {
-        void print(int indent = 0) const override {
-            printf("%*sStatement\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        const char* get_type_name() const override { return "Statement"; }
-    };
-
-    struct VariableDeclaration : public Statement {
-        void print(int indent = 0) const override {
-            printf("%*sVariableDeclaration\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        const char* get_type_name() const override { return "VariableDeclaration"; }
-    };
-
-    struct IntrinsicPrint : public Statement {
-        void print(int indent = 0) const override {
-            printf("%*sIntrinsicPrint (@print)\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        const char* get_type_name() const override { return "IntrinsicPrint"; }
-    };
-
-    struct NumberLiteral : public Node {
-        NumberLiteral(const Token& t) : token(t) {}
-        
-        void print(int indent = 0) const override {
-            // Extract the actual number value from the token
-            std::string lexeme{token.lexeme};
-            printf("%*sNumberLiteral: %s\n", indent * 2, "", lexeme.c_str());
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        
-        const char* get_type_name() const override { return "NumberLiteral"; }
-        
-        Token token;
-    };
-
-    struct Identifier : public Node {
-        Identifier(const Token& t) : token(t) {}
-        
-        void print(int indent = 0) const override {
-            // Extract the actual identifier name from the token
-            std::string lexeme{token.lexeme};
-            printf("%*sIdentifier: %s\n", indent * 2, "", lexeme.c_str());
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        
-        const char* get_type_name() const override { return "Identifier"; }
-        
-        Token token;
-    };
-
-    struct Type : public Identifier {
-        Type(const Token& t) : Identifier(t) {}
-
-        void print(int indent = 0) const override {
-            printf("%*sType\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        const char* get_type_name() const override { return "Type"; }
-    };
-
-    struct Expression : public Node {
-        void print(int indent = 0) const override {
-            printf("%*sExpression\n", indent * 2, "");
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        const char* get_type_name() const override { return "Expression"; }
-    };
-
-    struct BinaryExpression : public Expression {
-        BinaryExpression(const Token& op) : operator_token(op) {}
-        
-        void print(int indent = 0) const override {
-            std::string lexeme{operator_token.lexeme};
-            printf("%*sBinaryExpression: %s\n", indent * 2, "", lexeme.c_str());
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        
-        const char* get_type_name() const override { return "BinaryExpression"; }
-        
-        Token operator_token;
-    };
-
-    struct UnaryPrefixExpression : public Expression {
-        UnaryPrefixExpression(const Token& op) : operator_token(op) {}
-        
-        void print(int indent = 0) const override {
-            std::string lexeme{operator_token.lexeme};
-            printf("%*sUnaryPrefixExpression: %s\n", indent * 2, "", lexeme.c_str());
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        
-        const char* get_type_name() const override { return "UnaryPrefixExpression"; }
-        
-        Token operator_token;
-    };
-
-     struct UnaryPostfixExpression : public Expression {
-        UnaryPostfixExpression(const Token& op) : operator_token(op) {}
-        
-        void print(int indent = 0) const override {
-            std::string lexeme{operator_token.lexeme};
-            printf("%*sUnaryPostfixExpression: %s\n", indent * 2, "", lexeme.c_str());
-            for (const auto& child : children) {
-                if (child) {
-                    child->print(indent + 1);
-                }
-            }
-        }
-        
-        const char* get_type_name() const override { return "UnaryPostfixExpression"; }
-        
-        Token operator_token;
-    };
-
-    std::unique_ptr<Node> root;
+    // Storage for all nodes
+    std::vector<ASTNodeVariant> nodes;
+    NodeIndex root_index = INVALID_NODE_INDEX;
+    
+    // Utility functions for working with nodes
+    template<typename T>
+    NodeIndex add_node(T&& node) {
+        NodeIndex index = static_cast<NodeIndex>(nodes.size());
+        nodes.emplace_back(std::forward<T>(node));
+        return index;
+    }
+    
+    template<typename T>
+    T* get_node(NodeIndex index) {
+        if (index >= nodes.size()) return nullptr;
+        return std::get_if<T>(&nodes[index]);
+    }
+    
+    template<typename T>
+    const T* get_node(NodeIndex index) const {
+        if (index >= nodes.size()) return nullptr;
+        return std::get_if<T>(&nodes[index]);
+    }
+    
+    // Print function for AST nodes
+    void print_node(NodeIndex index, int indent = 0) const;
     
     // Utility function to print the entire AST
     void print_ast() const {
         printf("=== AST Structure ===\n");
-        if (root) {
-            root->print(0);
+        if (is_valid()) {
+            print_node(root_index, 0);
         } else {
             printf("(empty AST)\n");
         }
@@ -237,11 +179,11 @@ private:
     auto get_postfix_binding(Token::Type type) -> std::pair<int, int>;
     
     // Core parsing functions
-    auto parse_expression_bp(int min_bp) -> std::unique_ptr<AST::Node>;
-    auto parse_expression() -> std::unique_ptr<AST::Node>;
-    auto parse_intrinsic_print() -> std::unique_ptr<AST::Node>;
-    auto parse_variable_declaration() -> std::unique_ptr<AST::Node>;
-    auto parse_statement() -> std::unique_ptr<AST::Node>;
+    auto parse_expression_bp(int min_bp) -> NodeIndex;
+    auto parse_expression() -> NodeIndex;
+    auto parse_intrinsic_print() -> NodeIndex;
+    auto parse_variable_declaration() -> NodeIndex;
+    auto parse_statement() -> NodeIndex;
     
     // Helper functions for common parsing patterns
     auto expect_token(Token::Type expected_type, const char* context) -> bool;
