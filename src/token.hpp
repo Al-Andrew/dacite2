@@ -14,6 +14,7 @@ namespace dacite {
             Unknown,
     
             Keyword_Let,
+            Keyword_Fun,
     
             Intrinsic_Print,
             
@@ -24,6 +25,8 @@ namespace dacite {
             
             Lparen,
             Rparen,
+            Lbrace,
+            Rbrace,
             
             Plus,
             Minus,
@@ -35,6 +38,8 @@ namespace dacite {
             Colon,
             Semicolon,
     
+            Arrow,
+
             _EOF,
         };
 
@@ -48,11 +53,14 @@ namespace dacite {
         std::array<std::string_view, Token::Type::_EOF + 1> arr{};
         arr[Token::Type::Unknown] = "Unknown";
         arr[Token::Type::Keyword_Let] = "Keyword_Let";
+        arr[Token::Type::Keyword_Fun] = "Keyword_Fun";
         arr[Token::Type::Intrinsic_Print] = "Intrinsic_Print";
         arr[Token::Type::Literal_Number] = "Literal_Number";
         arr[Token::Type::Identifier] = "Identifier";
         arr[Token::Type::Lparen] = "Lparen";
         arr[Token::Type::Rparen] = "Rparen";
+        arr[Token::Type::Lbrace] = "Lbrace";
+        arr[Token::Type::Rbrace] = "Rbrace";
         arr[Token::Type::Plus] = "Plus";
         arr[Token::Type::Minus] = "Minus";
         arr[Token::Type::Star] = "Star";
@@ -60,6 +68,7 @@ namespace dacite {
         arr[Token::Type::Equals] = "Equals";
         arr[Token::Type::Colon] = "Colon";
         arr[Token::Type::Semicolon] = "Semicolon";
+        arr[Token::Type::Arrow] = "Arrow";
         arr[Token::Type::_EOF] = "_EOF";
         return arr;
     }();
@@ -68,6 +77,8 @@ namespace dacite {
         std::array<Token::Type, 256> map{};
         map['('] = Token::Type::Lparen;
         map[')'] = Token::Type::Rparen;
+        map['{'] = Token::Type::Lbrace;
+        map['}'] = Token::Type::Rbrace;
         map['+'] = Token::Type::Plus;
         map['-'] = Token::Type::Minus;
         map['*'] = Token::Type::Star;
@@ -78,11 +89,25 @@ namespace dacite {
         return map;
     }();
 
-    static constexpr std::array<Token::Type, 1> keyword_types_list = {
-        Token::Type::Keyword_Let,
+    template<class T, class U>
+    struct Pair {
+        T first;
+        U second;
     };
-    static constexpr std::array<std::string_view, 1> keyword_strings_list = {
+
+    static constexpr std::array<Pair<const char*, Token::Type>, 256> two_char_intruducers_map = []() constexpr {
+        std::array<Pair<const char*, Token::Type>, 256> map{};
+        map['-'] = {"->", Token::Type::Arrow};
+        return map;
+    }();
+
+    static constexpr std::array<Token::Type, 2> keyword_types_list = {
+        Token::Type::Keyword_Let,
+        Token::Type::Keyword_Fun,
+    };
+    static constexpr std::array<std::string_view, 2> keyword_strings_list = {
         "let",
+        "fun",
     };
 
     static constexpr std::array<Token::Type, 1> intrinsic_types_list = {

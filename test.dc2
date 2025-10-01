@@ -1,7 +1,11 @@
-let x :i32 = 55;
 
-x = x + 15;
+fun main : () -> u8 = {
 
-@print(x);
-# intrinsincs start with @
-@print(42);
+    let x :i32 = 55;
+
+    x = x + 15;
+
+    @print(x);
+    # intrinsincs start with @
+    @print(42);
+};

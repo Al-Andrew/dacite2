@@ -51,6 +51,8 @@ private:
     auto visit_node(const BinaryExpression& node) -> void;
     auto visit_node(const UnaryPrefixExpression& node) -> void;
     auto visit_node(const Type& node) -> void { /* no-op - used only during parsing */ }
+    auto visit_node(const FunctionDeclaration& node) -> void;
+    auto visit_node(const Block& node) -> void;
     
     // Helper method to visit any node by index
     auto visit_node(NodeIndex node_index) -> void;

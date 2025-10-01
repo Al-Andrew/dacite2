@@ -18,6 +18,8 @@ struct Identifier;
 struct Type;
 struct BinaryExpression;
 struct UnaryPrefixExpression;
+struct FunctionDeclaration;
+struct Block;
 
 // Node variant type containing all possible node types
 using ASTNodeVariant = std::variant<
@@ -28,7 +30,9 @@ using ASTNodeVariant = std::variant<
     Identifier,
     Type,
     BinaryExpression,
-    UnaryPrefixExpression
+    UnaryPrefixExpression,
+    FunctionDeclaration,
+    Block
 >;
 
 // Index type for referencing nodes
@@ -81,6 +85,19 @@ struct UnaryPrefixExpression {
     NodeIndex operand;
     
     UnaryPrefixExpression(const Token& op) : operator_token(op), operand(INVALID_NODE_INDEX) {}
+};
+
+struct FunctionDeclaration {
+    Token name;
+    NodeIndex return_type;
+    NodeIndex body;
+
+    FunctionDeclaration(const Token& n, NodeIndex ret_type, NodeIndex b)
+        : name(n), return_type(ret_type), body(b) {}
+};
+
+struct Block {
+    std::vector<NodeIndex> statements;
 };
 
 struct AST {
@@ -162,6 +179,8 @@ private:
     auto parse_intrinsic_print() -> NodeIndex;
     auto parse_variable_declaration() -> NodeIndex;
     auto parse_statement() -> NodeIndex;
+    auto parse_block() -> NodeIndex;
+    auto parse_function_declaration() -> NodeIndex;
     
     // Helper functions for common parsing patterns
     auto expect_token(Token::Type expected_type, const char* context) -> bool;

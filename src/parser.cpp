@@ -46,6 +46,18 @@ namespace dacite {
                 std::string lexeme{node.operator_token.lexeme};
                 printf("%*sUnaryPrefixExpression: %s\n", indent * 2, "", lexeme.c_str());
                 print_node(node.operand, indent + 1);
+            } else if constexpr (std::is_same_v<T, FunctionDeclaration>) {
+                std::string lexeme{node.name.lexeme};
+                printf("%*sFunctionDeclaration: %s\n", indent * 2, "", lexeme.c_str());
+                print_node(node.return_type, indent + 1);
+                print_node(node.body, indent + 1);
+            } else if constexpr (std::is_same_v<T, Block>) {
+                printf("%*sBlock\n", indent * 2, "");
+                for (NodeIndex stmt_index : node.statements) {
+                    print_node(stmt_index, indent + 1);
+                }
+            } else {
+                printf("%*s(unknown node type)\n", indent * 2, "");
             }
         }, nodes[index]);
     }
@@ -133,14 +145,15 @@ namespace dacite {
         
         switch (lhs_token.type) {
             case Token::Type::Literal_Number: {
+                DBG_PRINT("lhs is NumberLiteral: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
                 lhs = ast.add_node(NumberLiteral(lhs_token));
-                DBG_PRINT("lhs is NumberLiteral");
             } break;
             case Token::Type::Identifier: {
                 lhs = ast.add_node(Identifier(lhs_token));
-                DBG_PRINT("lhs is Identifier");
+                DBG_PRINT("lhs is Identifier: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
             } break;
             case Token::Type::Lparen: {
+                DBG_PRINT("lhs is Lparen: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
                 lhs = parse_expression_bp(0);
                 if(lhs == INVALID_NODE_INDEX) {
                     return INVALID_NODE_INDEX;
@@ -151,6 +164,7 @@ namespace dacite {
             } break;
             case Token::Type::Minus:
             case Token::Type::Plus: {
+                DBG_PRINT("lhs is UnaryPrefix operator: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
                 auto [_, r_bp] = get_prefix_binding(lhs_token.type);
                 auto rhs = parse_expression_bp(r_bp);
                 if(rhs == INVALID_NODE_INDEX) {
@@ -167,7 +181,7 @@ namespace dacite {
 
         while(!is_at_end()) {
             const auto op_token = current_token();
-            DBG_PRINT("Considering operator token type %d at index %zu", (int)op_token.type, index);
+            DBG_PRINT("Considering operator %.*s at index %zu", (int)op_token.lexeme.size(), op_token.lexeme.data(), index);
             
             // Check for infix operators
             if(auto [l_bp, r_bp] = get_infix_binding(op_token.type); l_bp != 0) {
@@ -318,18 +332,103 @@ namespace dacite {
         }
     }
 
+    auto Parser::parse_block() -> NodeIndex {
+        DBG_PRINT("parse_block: index=%zu", index);
+        
+        if (!consume_token(Token::Type::Lbrace, "{ to start block")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        Block block_node;
+
+        while (!is_at_end() && current_token().type != Token::Type::Rbrace) {
+            auto stmt = parse_statement();
+            if (stmt == INVALID_NODE_INDEX) {
+                return INVALID_NODE_INDEX;
+            }
+            block_node.statements.push_back(stmt);
+        }
+
+        if (!consume_token(Token::Type::Rbrace, "} to end block")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        return ast.add_node(std::move(block_node));
+    }
+
+    auto Parser::parse_function_declaration() -> NodeIndex {
+        DBG_PRINT("parse_function_declaration: index=%zu", index);
+        
+        // Expecting: fun <identifier> : () -> <type> = <block>
+        if (!consume_token(Token::Type::Keyword_Fun, "fun")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!expect_token(Token::Type::Identifier, "function name after 'fun'")) {
+            return INVALID_NODE_INDEX;
+        }
+        Token name_token = tokens[index++]; // consume function name
+        DBG_PRINT("Parsed function name: %.*s", (int)name_token.lexeme.size(), name_token.lexeme.data());
+
+        if (!consume_token(Token::Type::Colon, ": after function name")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        // TODO: parse parameters
+        if (!consume_token(Token::Type::Lparen, "( after ':'")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Rparen, ") after '('")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Arrow, "-> after ')'")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!expect_token(Token::Type::Identifier, "return type after '->'")) {
+            return INVALID_NODE_INDEX;
+        }
+        // TODO: support complex return types
+        Token return_type_token = tokens[index++]; // consume return type
+        auto return_type_index = ast.add_node(Type(return_type_token));
+        DBG_PRINT("Parsed return type: %.*s", (int)return_type_token.lexeme.size(), return_type_token.lexeme.data());
+
+        if (!consume_token(Token::Type::Equals, "= after return type")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto body = parse_block();
+        if (body == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse function body at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        if(expect_token(Token::Type::Semicolon, "; after function body")) {
+            consume_token(Token::Type::Semicolon, "; after function body");
+        }
+
+        // Construct AST node for function declaration
+        FunctionDeclaration func_decl_node(name_token, return_type_index, body);
+        return ast.add_node(std::move(func_decl_node));
+    }
+
     auto Parser::parse() -> AST {
         DBG_PRINT("Parsing %zu tokens", tokens.size());
 
         ast.root_index = ast.add_node(Module());
-
+        
         while (!is_at_end() && current_token().type != Token::Type::_EOF) {
-            auto stmt = parse_statement();
+            auto stmt = parse_function_declaration();
+            
             if (stmt != INVALID_NODE_INDEX) {
                 auto* module_node = ast.get_node<Module>(ast.root_index);
-                if (module_node) {
-                    module_node->statements.push_back(stmt);
+                if (!module_node) {
+                    fprintf(stderr, "Error: Failed to create root Module node\n");
+                    return std::move(ast);
                 }
+                module_node->statements.push_back(stmt);
             } else {
                 fprintf(stderr, "Error: Failed to parse statement at token %zu\n", index);
                 ast.root_index = INVALID_NODE_INDEX; // Invalidate AST on error

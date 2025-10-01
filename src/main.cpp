@@ -81,16 +81,27 @@ CompiledModule compile(const char* source) {
         }
     }
 
+    DBG_PRINT("Lexing Done!! Tokens count: %zu", tokens.size());
+
     AST ast = dacite::Parser::with_tokens(tokens).parse();
     if(!ast.is_valid()) {
         fprintf(stderr, "Error: Parsing failed\n");
         return CompiledModule{};
     }
+
+    DBG_PRINT("Parsing Done!! AST is valid");
     
     // Print the AST structure
     ast.print_ast();
 
     CompiledModule module = dacite::CodeGenerator::with_ast(ast).generate();
+
+    if(!module.is_valid()) {
+        fprintf(stderr, "Error: Code generation failed\n");
+        return CompiledModule{};
+    }
+    DBG_PRINT("Code Generation Done!! Module is valid");
+
     return module;
 }
 

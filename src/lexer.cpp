@@ -78,6 +78,15 @@ namespace dacite {
 
         // Single character tokens
         if(auto type = single_char_tokens_map[(uint8_t)c]; type != Token::Type::Unknown) {
+
+            // Check for two character tokens
+            if(const auto& pair = two_char_intruducers_map[(uint8_t)c]; pair.first != nullptr) {
+                if(this->peek() == pair.first[1]) {
+                    this->advance(); // consume second character
+                    return this->make_token(pair.second, start_pos, start_line, start_column);
+                }
+            }
+
             return this->make_token(type, start_pos, start_line, start_column);
         }
         // Two character tokens
