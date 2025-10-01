@@ -11,30 +11,24 @@ namespace dacite {
 
 // Forward declarations for all node types
 struct Module;
-struct Statement;
 struct VariableDeclaration;
 struct IntrinsicPrint;
 struct NumberLiteral;
 struct Identifier;
 struct Type;
-struct Expression;
 struct BinaryExpression;
 struct UnaryPrefixExpression;
-struct UnaryPostfixExpression;
 
 // Node variant type containing all possible node types
 using ASTNodeVariant = std::variant<
     Module,
-    Statement,
     VariableDeclaration,
     IntrinsicPrint,
     NumberLiteral,
     Identifier,
     Type,
-    Expression,
     BinaryExpression,
-    UnaryPrefixExpression,
-    UnaryPostfixExpression
+    UnaryPrefixExpression
 >;
 
 // Index type for referencing nodes
@@ -44,10 +38,6 @@ constexpr NodeIndex INVALID_NODE_INDEX = UINT32_MAX;
 // Node structure definitions
 struct Module {
     std::vector<NodeIndex> statements;
-};
-
-struct Statement {
-    std::vector<NodeIndex> children; // Keep generic for base statement
 };
 
 struct VariableDeclaration {
@@ -78,10 +68,6 @@ struct Type {
     Type(const Token& t) : token(t) {}
 };
 
-struct Expression {
-    std::vector<NodeIndex> children; // Keep generic for base expression
-};
-
 struct BinaryExpression {
     Token operator_token;
     NodeIndex left;
@@ -95,13 +81,6 @@ struct UnaryPrefixExpression {
     NodeIndex operand;
     
     UnaryPrefixExpression(const Token& op) : operator_token(op), operand(INVALID_NODE_INDEX) {}
-};
-
-struct UnaryPostfixExpression {
-    Token operator_token;
-    NodeIndex operand;
-    
-    UnaryPostfixExpression(const Token& op) : operator_token(op), operand(INVALID_NODE_INDEX) {}
 };
 
 struct AST {
@@ -176,7 +155,6 @@ private:
     // Precedence binding functions
     auto get_infix_binding(Token::Type type) -> std::pair<int, int>;
     auto get_prefix_binding(Token::Type type) -> std::pair<int, int>;
-    auto get_postfix_binding(Token::Type type) -> std::pair<int, int>;
     
     // Core parsing functions
     auto parse_expression_bp(int min_bp) -> NodeIndex;

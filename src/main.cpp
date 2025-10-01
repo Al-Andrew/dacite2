@@ -12,9 +12,11 @@
 
 #include "lexer.hpp"
 #include "parser.hpp"
+#include "codegen.hpp"
 
 using dacite::Token;
 using dacite::AST;
+using dacite::CompiledModule;
 
 #define DBG_PRINT(X, ...) printf(X "\n", ##__VA_ARGS__)
 
@@ -64,192 +66,6 @@ const char* read_file_to_allocated_buffer(const char* filename) {
     return buffer;
 }
 
-struct CompiledModule {
-    bool is_valid() const {
-        return bytecode.size() > 0;
-    }
-
-    std::vector<uint32_t> bytecode;
-    std::vector<uint64_t> constants;
-};
-
-enum class BytecodeOp : uint32_t {
-    PRINT = 1,
-    ADD = 2,
-    SUBTRACT = 3,
-    MULTIPLY = 4,
-    DIVIDE = 5,
-    PUSH_CONST = 6,
-    POP = 7,
-    RESERVE = 8, // <how much> 
-    STORE = 9, // <where>
-    LOAD = 10, // <where>
-};
-
-CompiledModule codegen_from_ast(const AST& ast) {
-    // Dummy codegen function
-    DBG_PRINT("Generating code from AST");
-
-    CompiledModule module;
-
-    std::map<std::string, uint32_t> variable_stack_offset_table{};
-
-    // dfs nodes
-    std::function<void(dacite::NodeIndex)> dfs;
-    dfs = [&](dacite::NodeIndex node_index) {
-        if (node_index == dacite::INVALID_NODE_INDEX || node_index >= ast.nodes.size()) {
-            return;
-        }
-        
-        std::visit([&](const auto& node) {
-            using T = std::decay_t<decltype(node)>;
-            
-            if constexpr (std::is_same_v<T, dacite::Module>) {
-                // Traverse children
-                for(dacite::NodeIndex statement_index : node.statements) {
-                    dfs(statement_index);
-                }
-                return;
-            }
-            else if constexpr (std::is_same_v<T, dacite::VariableDeclaration>) {
-                // Generate bytecode for variable declaration
-                const dacite::Identifier* id_node = ast.get_node<dacite::Identifier>(node.identifier);
-                if(!id_node) {
-                    fprintf(stderr, "Error: VariableDeclaration identifier is not an Identifier node\n");
-                    return;
-                }
-                std::string var_name{id_node->token.lexeme};
-                DBG_PRINT("Declaring variable: %s", var_name.c_str());
-                if(variable_stack_offset_table.find(var_name) != variable_stack_offset_table.end()) {
-                    fprintf(stderr, "Error: Variable %s already declared\n", var_name.c_str());
-                    return;
-                }
-                // Reserve space on stack for variable
-                uint32_t var_offset = variable_stack_offset_table.size();
-                variable_stack_offset_table[var_name] = var_offset * sizeof(uint64_t);
-
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::RESERVE));
-                module.bytecode.push_back(sizeof(uint64_t)); // reserve 8 bytes for u64
-
-                // Generate code for expression
-                dfs(node.initializer);
-                
-                // Store top of stack into variable location
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
-                module.bytecode.push_back(var_offset * sizeof(uint64_t));
-                
-                return;
-            }
-            else if constexpr (std::is_same_v<T, dacite::Identifier>) {
-                // Load variable value onto stack
-                std::string var_name{node.token.lexeme};
-                DBG_PRINT("Loading variable: %s", var_name.c_str());
-                auto it = variable_stack_offset_table.find(var_name);
-                if(it == variable_stack_offset_table.end()) {
-                    fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
-                    return;
-                }
-                uint32_t var_offset = it->second;
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
-                module.bytecode.push_back(var_offset);
-                return;
-            }
-            else if constexpr (std::is_same_v<T, dacite::IntrinsicPrint>) {
-                // Generate bytecode for @print
-                dfs(node.expression);
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PRINT));
-                return;
-            }
-            else if constexpr (std::is_same_v<T, dacite::NumberLiteral>) {
-                // Convert number token to integer
-                uint64_t value = strtoull(node.token.lexeme.data(), nullptr, 10);
-                // Add constant to module
-                uint32_t const_index = module.constants.size();
-                module.constants.push_back(value);
-                // Generate bytecode to push constant
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
-                module.bytecode.push_back(const_index);
-                return;
-            }
-            else if constexpr (std::is_same_v<T, dacite::BinaryExpression>) {
-                if(node.operator_token.type == Token::Type::Equals) {
-                    // For assignment, rhs is evaluated first
-                    dfs(node.right);
-                }
-                else {
-                    dfs(node.left);
-                    dfs(node.right);
-                }
-
-                switch(node.operator_token.type) {
-                    case Token::Type::Plus:
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD));
-                        break;
-                    case Token::Type::Minus:
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
-                        break;
-                    case Token::Type::Star:
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::MULTIPLY));
-                        break;
-                    case Token::Type::Slash:
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::DIVIDE));
-                        break;
-                    case Token::Type::Equals:
-                        if(node.left == dacite::INVALID_NODE_INDEX) {
-                            fprintf(stderr, "Error: Assignment target is invalid\n");
-                            return;
-                        }
-                        if(const dacite::Identifier* id_node = ast.get_node<dacite::Identifier>(node.left); id_node) {
-                            std::string var_name{id_node->token.lexeme};
-                            DBG_PRINT("Assigning to variable: %s", var_name.c_str());
-                            auto it = variable_stack_offset_table.find(var_name);
-                            if(it == variable_stack_offset_table.end()) {
-                                fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
-                                return;
-                            }
-                            uint32_t var_offset = it->second;
-                            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
-                            module.bytecode.push_back(var_offset);
-                        } else {
-                            fprintf(stderr, "Error: Assignment target is not an Identifier\n");
-                            return;
-                        }
-                        break;
-                    default:
-                        fprintf(stderr, "Error: Unknown binary operator token type %d\n", (int)node.operator_token.type);
-                        return;
-                }
-                return;
-            }
-            else if constexpr (std::is_same_v<T, dacite::UnaryPrefixExpression>) {
-                dfs(node.operand);
-                switch(node.operator_token.type) {
-                    case Token::Type::Minus:
-                        // Negate the top of the stack: PUSH_CONST 0; SUBTRACT
-                        module.constants.push_back(0);
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
-                        module.bytecode.push_back(module.constants.size() - 1);
-                        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
-                        break;
-                    case Token::Type::Plus:
-                        // No-op for unary plus
-                        break;
-                    default:
-                        fprintf(stderr, "Error: Unknown unary prefix operator token type %d\n", (int)node.operator_token.type);
-                        return;
-                }
-                return;
-            }
-        }, ast.nodes[node_index]);
-    };
-
-    dfs(ast.root_index);
-
-    DBG_PRINT("Generated module with %zu constants", module.constants.size());
-
-    return module;
-}
-
 CompiledModule compile(const char* source) {    
     // Dummy compilation function
     DBG_PRINT("Compiling source:\n%s", source);
@@ -273,7 +89,7 @@ CompiledModule compile(const char* source) {
     // Print the AST structure
     ast.print_ast();
 
-    CompiledModule module = codegen_from_ast(ast);
+    CompiledModule module = dacite::CodeGenerator::with_ast(ast).generate();
     return module;
 }
 
@@ -298,9 +114,9 @@ struct VM {
         const CompiledModule& module = modules[current_module_index];
         size_t pc = 0; // program counter
         while(pc < module.bytecode.size()) {
-            BytecodeOp op = static_cast<BytecodeOp>(module.bytecode[pc]);
+            dacite::BytecodeOp op = static_cast<dacite::BytecodeOp>(module.bytecode[pc]);
             switch(op) {
-                case BytecodeOp::PRINT: {
+                case dacite::BytecodeOp::PRINT: {
                     if(stack.size() < 1) {
                         fprintf(stderr, "Error: PRINT instruction requires at least 1 value on the stack\n");
                         return false;
@@ -310,7 +126,7 @@ struct VM {
                     printf("%llu\n", value);
                     pc += 1;
                 } break;
-                case BytecodeOp::ADD: {
+                case dacite::BytecodeOp::ADD: {
                     if(stack.size() < 2) {
                         fprintf(stderr, "Error: ADD instruction requires at least 2 values on the stack\n");
                         return false;
@@ -320,7 +136,7 @@ struct VM {
                     stack.push_back(a + b);
                     pc += 1;
                 } break;
-                case BytecodeOp::SUBTRACT: {
+                case dacite::BytecodeOp::SUBTRACT: {
                     if(stack.size() < 2) {
                         fprintf(stderr, "Error: SUBTRACT instruction requires at least 2 values on the stack\n");
                         return false;
@@ -330,7 +146,7 @@ struct VM {
                     stack.push_back(a - b);
                     pc += 1;
                 } break;
-                case BytecodeOp::MULTIPLY: {
+                case dacite::BytecodeOp::MULTIPLY: {
                     if(stack.size() < 2) {
                         fprintf(stderr, "Error: MULTIPLY instruction requires at least 2 values on the stack\n");
                         return false;
@@ -340,7 +156,7 @@ struct VM {
                     stack.push_back(a * b);
                     pc += 1;
                 } break;
-                case BytecodeOp::DIVIDE: {
+                case dacite::BytecodeOp::DIVIDE: {
                     if(stack.size() < 2) {
                         fprintf(stderr, "Error: DIVIDE instruction requires at least 2 values on the stack\n");
                         return false;
@@ -354,7 +170,7 @@ struct VM {
                     stack.push_back(a / b);
                     pc += 1;
                 } break;
-                case BytecodeOp::PUSH_CONST: {
+                case dacite::BytecodeOp::PUSH_CONST: {
                     if(pc + 1 >= module.bytecode.size()) {
                         fprintf(stderr, "Error: PUSH_CONST instruction missing operand\n");
                         return false;
@@ -368,7 +184,7 @@ struct VM {
                     stack.push_back(value);
                     pc += 2; // advance past PUSH_CONST and its operand
                 } break;
-                case BytecodeOp::POP: {
+                case dacite::BytecodeOp::POP: {
                     if(stack.size() < 1) {
                         fprintf(stderr, "Error: POP instruction requires at least 1 value on the stack\n");
                         return false;
@@ -376,7 +192,7 @@ struct VM {
                     stack.pop_back();
                     pc += 1;
                 } break;
-                case BytecodeOp::RESERVE: {
+                case dacite::BytecodeOp::RESERVE: {
                     if(pc + 1 >= module.bytecode.size()) {
                         fprintf(stderr, "Error: RESERVE instruction missing operand\n");
                         return false;
@@ -387,7 +203,7 @@ struct VM {
                     }
                     pc += 2; // advance past RESERVE and its operand
                 } break;
-                case BytecodeOp::STORE: {
+                case dacite::BytecodeOp::STORE: {
                     if(pc + 1 >= module.bytecode.size()) {
                         fprintf(stderr, "Error: STORE instruction missing operand\n");
                         return false;
@@ -406,7 +222,7 @@ struct VM {
                     stack[where / sizeof(uint64_t)] = value;
                     pc += 2; // advance past STORE and its operand
                 } break;
-                case BytecodeOp::LOAD: {
+                case dacite::BytecodeOp::LOAD: {
                     if(pc + 1 >= module.bytecode.size()) {
                         fprintf(stderr, "Error: LOAD instruction missing operand\n");
                         return false;

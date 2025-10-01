@@ -20,11 +20,6 @@ namespace dacite {
                 for (NodeIndex statement_index : node.statements) {
                     print_node(statement_index, indent + 1);
                 }
-            } else if constexpr (std::is_same_v<T, Statement>) {
-                printf("%*sStatement\n", indent * 2, "");
-                for (NodeIndex child_index : node.children) {
-                    print_node(child_index, indent + 1);
-                }
             } else if constexpr (std::is_same_v<T, VariableDeclaration>) {
                 printf("%*sVariableDeclaration\n", indent * 2, "");
                 print_node(node.identifier, indent + 1);
@@ -42,11 +37,6 @@ namespace dacite {
             } else if constexpr (std::is_same_v<T, Type>) {
                 std::string lexeme{node.token.lexeme};
                 printf("%*sType: %s\n", indent * 2, "", lexeme.c_str());
-            } else if constexpr (std::is_same_v<T, Expression>) {
-                printf("%*sExpression\n", indent * 2, "");
-                for (NodeIndex child_index : node.children) {
-                    print_node(child_index, indent + 1);
-                }
             } else if constexpr (std::is_same_v<T, BinaryExpression>) {
                 std::string lexeme{node.operator_token.lexeme};
                 printf("%*sBinaryExpression: %s\n", indent * 2, "", lexeme.c_str());
@@ -55,10 +45,6 @@ namespace dacite {
             } else if constexpr (std::is_same_v<T, UnaryPrefixExpression>) {
                 std::string lexeme{node.operator_token.lexeme};
                 printf("%*sUnaryPrefixExpression: %s\n", indent * 2, "", lexeme.c_str());
-                print_node(node.operand, indent + 1);
-            } else if constexpr (std::is_same_v<T, UnaryPostfixExpression>) {
-                std::string lexeme{node.operator_token.lexeme};
-                printf("%*sUnaryPostfixExpression: %s\n", indent * 2, "", lexeme.c_str());
                 print_node(node.operand, indent + 1);
             }
         }, nodes[index]);
@@ -134,13 +120,6 @@ namespace dacite {
         }
     }
 
-    auto Parser::get_postfix_binding(Token::Type type) -> std::pair<int, int> {
-        switch(type) {
-            default:
-                return {0, 0};
-        }
-    }
-
     auto Parser::parse_expression_bp(int min_bp) -> NodeIndex {
         DBG_PRINT("parse_expression_bp: index=%zu, min_bp=%d", index, min_bp);
 
@@ -207,17 +186,7 @@ namespace dacite {
                 continue;
             }
             
-            // Check for postfix operators
-            if(auto [l_bp, r_bp] = get_postfix_binding(op_token.type); l_bp != 0) {
-                if(l_bp < min_bp) {
-                    break;
-                }
-                index++; // consume operator
-                UnaryPostfixExpression postfix_node(op_token);
-                postfix_node.operand = lhs;
-                lhs = ast.add_node(std::move(postfix_node));
-                continue;
-            }
+            // No postfix operators implemented yet
             break; // No more operators
         }
 
