@@ -9,3 +9,10 @@ fun main : () -> u8 = {
     # intrinsincs start with @
     @print(42);
 };
+
+fun main2 : () -> u32 = {
+
+    @print(32);
+    @print(44);
+
+}

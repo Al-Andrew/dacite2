@@ -191,7 +191,7 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
 }
     
     auto CodeGenerator::visit_node(const FunctionDeclaration& node) -> void {
-        DBG_PRINT("Visiting FunctionDeclaration: %s", node.name.lexeme.data());
+        DBG_PRINT("Visiting FunctionDeclaration: %.*s", (int)node.name.lexeme.size(), node.name.lexeme.data());
         // For simplicity, we will not implement function calls in this example.
         // In a full implementation, you would handle function definitions, parameters, and calls.
         visit_node(node.body);
