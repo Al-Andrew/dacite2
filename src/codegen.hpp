@@ -21,6 +21,12 @@ enum class BytecodeOp : uint32_t {
     RESERVE = 8, // <how much> 
     STORE = 9, // <where>
     LOAD = 10, // <where>
+    JMP = 11, // <where>
+
+    CALL = 12, // <function_offset>
+    RETURN = 13,
+
+    HALT = 14,
 };
 
 // Compiled module structure
@@ -29,6 +35,7 @@ struct CompiledModule {
     
     std::vector<uint32_t> bytecode;
     std::vector<uint64_t> constants;
+    std::map<std::string, uint64_t> function_offsets;
 };
 
 // Code generator class
@@ -53,12 +60,18 @@ private:
     auto visit_node(const Type& node) -> void { /* no-op - used only during parsing */ }
     auto visit_node(const FunctionDeclaration& node) -> void;
     auto visit_node(const Block& node) -> void;
+    auto visit_node(const ReturnStatement& node) -> void;
+    auto visit_node(const IntrinsicHalt& node) -> void;
+    auto visit_node(const FunctionCall& node) -> void;
     
     // Helper method to visit any node by index
     auto visit_node(NodeIndex node_index) -> void;
     
+    auto patch_defered_functions() -> void;
+
     const AST* ast = nullptr;
     CompiledModule module;
+    std::map<std::string, std::vector<uint32_t>> deffered_function_offsets;
     std::map<std::string, uint32_t> variable_stack_offset_table;
 };
 

@@ -8,6 +8,9 @@ fun main : () -> u8 = {
     @print(x);
     # intrinsincs start with @
     @print(42);
+
+    @print(main2());
+    return 0;
 };
 
 fun main2 : () -> u32 = {
@@ -15,4 +18,5 @@ fun main2 : () -> u32 = {
     @print(32);
     @print(44);
 
+    return 42;
 }

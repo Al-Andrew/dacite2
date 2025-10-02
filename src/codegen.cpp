@@ -1,4 +1,5 @@
 #include "codegen.hpp"
+#include <cstdint>
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
@@ -28,10 +29,27 @@ auto CodeGenerator::generate() -> CompiledModule {
     // Clear previous state
     module = CompiledModule{};
     variable_stack_offset_table.clear();
-    
+
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CALL)); // We JMP to main not CALL but return out of it, hence the setup before
+
+    module.bytecode.push_back(0); // Placeholder for main function offset
+    auto main_function_offset_index = module.bytecode.size() - 1;
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::HALT));
+
     // Start code generation from root
     visit_node(ast->root_index);
-    
+
+    // Now we patch the main function offset
+    auto it = module.function_offsets.find("main");
+    if (it == module.function_offsets.end()) {
+        fprintf(stderr, "Error: No 'main' function defined\n");
+        return CompiledModule{};
+    }
+    uint32_t main_offset = it->second;
+    module.bytecode[main_function_offset_index] = main_offset;
+
+    patch_defered_functions();
+
     DBG_PRINT("Generated module with %zu constants", module.constants.size());
     return module;
 }
@@ -192,8 +210,15 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
     
     auto CodeGenerator::visit_node(const FunctionDeclaration& node) -> void {
         DBG_PRINT("Visiting FunctionDeclaration: %.*s", (int)node.name.lexeme.size(), node.name.lexeme.data());
-        // For simplicity, we will not implement function calls in this example.
-        // In a full implementation, you would handle function definitions, parameters, and calls.
+        
+        std::string func_name{node.name.lexeme};
+        if (module.function_offsets.find(func_name) != module.function_offsets.end()) {
+            fprintf(stderr, "Error: Function %s already defined\n", func_name.c_str());
+            return;
+        }
+        uint32_t func_start_offset = module.bytecode.size();
+        module.function_offsets[func_name] = func_start_offset;
+
         visit_node(node.body);
     }
 
@@ -201,6 +226,66 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         DBG_PRINT("Visiting Block with %zu statements", node.statements.size());
         for (NodeIndex stmt_index : node.statements) {
             visit_node(stmt_index);
+        }
+    }
+
+    auto CodeGenerator::visit_node(const ReturnStatement& node) -> void {
+        DBG_PRINT("Visiting ReturnStatement");
+        visit_node(node.expression);
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::RETURN));
+    }
+
+    auto CodeGenerator::visit_node(const IntrinsicHalt& node) -> void {
+        DBG_PRINT("Visiting IntrinsicHalt");
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::HALT));
+    }
+
+    auto CodeGenerator::visit_node(const FunctionCall& node) -> void {
+        DBG_PRINT("Visiting FunctionCall");
+        for (NodeIndex arg_index : node.arguments) {
+            visit_node(arg_index);
+        }
+
+        if (const Identifier* id_node = ast->get_node<Identifier>(node.callee); id_node) {
+            std::string func_name{id_node->token.lexeme};
+            auto it = module.function_offsets.find(func_name);
+            if (it != module.function_offsets.end()) {
+                uint32_t func_offset = it->second;
+                
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CALL));
+                module.bytecode.push_back(func_offset);
+            } else {
+                uint32_t func_offset = 0xcafebabe;
+
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CALL));
+                module.bytecode.push_back(func_offset);
+
+                if (auto it = deffered_function_offsets.find(func_name); it != deffered_function_offsets.end()) {
+                    fprintf(stderr, "Error:  trying to redefine function: %.*s\n", (int)func_name.size(), func_name.data());
+                    exit(42);
+                }
+
+                deffered_function_offsets[func_name].push_back(module.bytecode.size() - 1); 
+            }
+            
+        } else {
+            fprintf(stderr, "Error: Function call callee is not an Identifier\n");
+            return;
+        }
+    }
+
+    auto CodeGenerator::patch_defered_functions() -> void {
+
+        for(auto& [fname, offsets] : deffered_function_offsets) {
+
+            if(auto it = module.function_offsets.find(fname); it != module.function_offsets.end()) {
+                uint32_t func_offset = it->second;
+                for(auto offset : offsets) {
+                    module.bytecode[offset] = func_offset;
+                }
+            } else {
+                fprintf(stderr, "Couldn't find function %s\n", fname.c_str());
+            }
         }
     }
 }

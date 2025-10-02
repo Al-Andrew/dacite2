@@ -13,6 +13,7 @@ namespace dacite {
 struct Module;
 struct VariableDeclaration;
 struct IntrinsicPrint;
+struct IntrinsicHalt;
 struct NumberLiteral;
 struct Identifier;
 struct Type;
@@ -20,19 +21,24 @@ struct BinaryExpression;
 struct UnaryPrefixExpression;
 struct FunctionDeclaration;
 struct Block;
+struct ReturnStatement;
+struct FunctionCall;
 
 // Node variant type containing all possible node types
 using ASTNodeVariant = std::variant<
     Module,
     VariableDeclaration,
     IntrinsicPrint,
+    IntrinsicHalt,
     NumberLiteral,
     Identifier,
     Type,
     BinaryExpression,
     UnaryPrefixExpression,
     FunctionDeclaration,
-    Block
+    Block,
+    ReturnStatement,
+    FunctionCall
 >;
 
 // Index type for referencing nodes
@@ -98,6 +104,23 @@ struct FunctionDeclaration {
 
 struct Block {
     std::vector<NodeIndex> statements;
+};
+
+struct ReturnStatement {
+    NodeIndex expression;
+    
+    ReturnStatement(NodeIndex expr) : expression(expr) {}
+};
+
+struct IntrinsicHalt{
+    IntrinsicHalt() = default;
+};
+
+struct FunctionCall {
+    NodeIndex callee;
+    std::vector<NodeIndex> arguments;
+    
+    FunctionCall(NodeIndex c) : callee(c) {}
 };
 
 struct AST {
@@ -172,7 +195,8 @@ private:
     // Precedence binding functions
     auto get_infix_binding(Token::Type type) -> std::pair<int, int>;
     auto get_prefix_binding(Token::Type type) -> std::pair<int, int>;
-    
+    auto get_postfix_binding(Token::Type type) -> std::pair<int, int>;
+
     // Core parsing functions
     auto parse_expression_bp(int min_bp) -> NodeIndex;
     auto parse_expression() -> NodeIndex;
@@ -181,7 +205,10 @@ private:
     auto parse_statement() -> NodeIndex;
     auto parse_block() -> NodeIndex;
     auto parse_function_declaration() -> NodeIndex;
-    
+    auto parse_return_statement() -> NodeIndex;
+    auto parse_halt_statement() -> NodeIndex;
+    auto parse_function_call(NodeIndex callee) -> NodeIndex;
+
     // Helper functions for common parsing patterns
     auto expect_token(Token::Type expected_type, const char* context) -> bool;
     auto consume_token(Token::Type expected_type, const char* context) -> bool;

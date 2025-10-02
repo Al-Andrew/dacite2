@@ -15,8 +15,10 @@ namespace dacite {
     
             Keyword_Let,
             Keyword_Fun,
+            Keyword_Return,
     
             Intrinsic_Print,
+            Intrinsic_Halt,
             
             
             Literal_Number,
@@ -34,7 +36,8 @@ namespace dacite {
             Slash,
     
             Equals,
-    
+
+            Comma,
             Colon,
             Semicolon,
     
@@ -54,6 +57,7 @@ namespace dacite {
         arr[Token::Type::Unknown] = "Unknown";
         arr[Token::Type::Keyword_Let] = "Keyword_Let";
         arr[Token::Type::Keyword_Fun] = "Keyword_Fun";
+        arr[Token::Type::Keyword_Return] = "Keyword_Return";
         arr[Token::Type::Intrinsic_Print] = "Intrinsic_Print";
         arr[Token::Type::Literal_Number] = "Literal_Number";
         arr[Token::Type::Identifier] = "Identifier";
@@ -66,6 +70,7 @@ namespace dacite {
         arr[Token::Type::Star] = "Star";
         arr[Token::Type::Slash] = "Slash";
         arr[Token::Type::Equals] = "Equals";
+        arr[Token::Type::Comma] = "Comma";
         arr[Token::Type::Colon] = "Colon";
         arr[Token::Type::Semicolon] = "Semicolon";
         arr[Token::Type::Arrow] = "Arrow";
@@ -86,6 +91,7 @@ namespace dacite {
         map['='] = Token::Type::Equals;
         map[':'] = Token::Type::Colon;
         map[';'] = Token::Type::Semicolon;
+        map[','] = Token::Type::Comma;
         return map;
     }();
 
@@ -101,19 +107,23 @@ namespace dacite {
         return map;
     }();
 
-    static constexpr std::array<Token::Type, 2> keyword_types_list = {
+    static constexpr std::array<Token::Type, 3> keyword_types_list = {
         Token::Type::Keyword_Let,
         Token::Type::Keyword_Fun,
+        Token::Type::Keyword_Return,
     };
-    static constexpr std::array<std::string_view, 2> keyword_strings_list = {
+    static constexpr std::array<std::string_view, 3> keyword_strings_list = {
         "let",
         "fun",
+        "return",
     };
 
-    static constexpr std::array<Token::Type, 1> intrinsic_types_list = {
+    static constexpr std::array<Token::Type, 2> intrinsic_types_list = {
         Token::Type::Intrinsic_Print,
+        Token::Type::Intrinsic_Halt,
     };
-    static constexpr std::array<std::string_view, 1> intrinsic_strings_list = {
+    static constexpr std::array<std::string_view, 2> intrinsic_strings_list = {
         "@print",
+        "@halt",
     };
 }

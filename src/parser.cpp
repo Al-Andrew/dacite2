@@ -56,6 +56,11 @@ namespace dacite {
                 for (NodeIndex stmt_index : node.statements) {
                     print_node(stmt_index, indent + 1);
                 }
+            } else if constexpr (std::is_same_v<T, ReturnStatement>) {
+                printf("%*sReturnStatement\n", indent * 2, "");
+                print_node(node.expression, indent + 1);
+            } else if constexpr (std::is_same_v<T, IntrinsicHalt>) {
+                printf("%*sIntrinsicHalt\n", indent * 2, "");
             } else {
                 printf("%*s(unknown node type)\n", indent * 2, "");
             }
@@ -132,6 +137,15 @@ namespace dacite {
         }
     }
 
+    auto Parser::get_postfix_binding(Token::Type type) -> std::pair<int, int> {
+        switch(type) {
+            case Token::Type::Lparen:
+                return {7, 0};
+            default:
+                return {0, 0};
+        }
+    }
+
     auto Parser::parse_expression_bp(int min_bp) -> NodeIndex {
         DBG_PRINT("parse_expression_bp: index=%zu, min_bp=%d", index, min_bp);
 
@@ -199,8 +213,17 @@ namespace dacite {
                 lhs = ast.add_node(std::move(binary_node));
                 continue;
             }
-            
-            // No postfix operators implemented yet
+
+            if(auto [l_bp, _] = get_postfix_binding(op_token.type); l_bp != 0) {
+                
+                if(op_token.type == Token::Type::Lparen) {
+                    return parse_function_call(lhs);
+                } else {
+                    fprintf(stderr, "Error: Unknown postfix operator %d at token %zu\n", (int)op_token.type, index - 1);
+                    return INVALID_NODE_INDEX;
+                }
+            }
+
             break; // No more operators
         }
 
@@ -214,6 +237,37 @@ namespace dacite {
         }
 
         return parse_expression_bp(0);
+    }
+
+    auto Parser::parse_function_call(NodeIndex callee) -> NodeIndex {
+        DBG_PRINT("parse_function_call: index=%zu", index);
+        
+        // Expecting: <callee> ( <arg1>, <arg2>, ... )
+        if (!consume_token(Token::Type::Lparen, "( after function name")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        FunctionCall func_call_node(callee);
+
+        while(!is_at_end() && current_token().type != Token::Type::Rparen) {
+            auto arg = parse_expression();
+            if (arg == INVALID_NODE_INDEX) {
+                return INVALID_NODE_INDEX;
+            }
+            func_call_node.arguments.push_back(arg);
+
+            if (current_token().type == Token::Type::Comma) {
+                index++; // consume comma
+            } else {
+                break; // no more arguments
+            }
+        }
+
+        if (!consume_token(Token::Type::Rparen, ") after arguments")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        return ast.add_node(std::move(func_call_node));
     }
 
     auto Parser::parse_intrinsic_print() -> NodeIndex {
@@ -311,6 +365,9 @@ namespace dacite {
             case Token::Type::Intrinsic_Print: {
                 return parse_intrinsic_print();
             } break;
+            case Token::Type::Intrinsic_Halt: {
+                return parse_halt_statement();
+            } break;
             case Token::Type::Keyword_Let: {
                 return parse_variable_declaration();
             } break;
@@ -324,6 +381,12 @@ namespace dacite {
                     return INVALID_NODE_INDEX;
                 }
                 return expr;
+            } break;
+            case Token::Type::Keyword_Return: {
+                return parse_return_statement();
+            } break;
+            case Token::Type::Lbrace: {
+                return parse_block();
             } break;
             default: {
                 fprintf(stderr, "Error: Unexpected token type %d at token %zu\n", (int)token.type, index);
@@ -437,5 +500,54 @@ namespace dacite {
         }   
 
         return std::move(ast);
+    }
+
+    auto Parser::parse_return_statement() -> NodeIndex {
+        DBG_PRINT("parse_return_statement: index=%zu", index);
+        
+        // Expecting: return <expression> ;
+        if (!consume_token(Token::Type::Keyword_Return, "return")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto expression = parse_expression();
+        if (expression == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse expression after 'return' at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Semicolon, "; after expression")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        // Construct AST node for return statement
+        ReturnStatement return_node(expression);
+        return ast.add_node(std::move(return_node));
+    }
+
+    auto Parser::parse_halt_statement() -> NodeIndex {
+        DBG_PRINT("parse_halt_statement: index=%zu", index);
+        
+        // Expecting: @halt();
+        if (!consume_token(Token::Type::Intrinsic_Halt, "@halt")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Lparen, "( after @halt")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Rparen, ") after @halt")) {
+            return INVALID_NODE_INDEX;
+        }
+
+
+        if (!consume_token(Token::Type::Semicolon, "; after @halt")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        // Construct AST node for halt statement
+        IntrinsicHalt halt_node;
+        return ast.add_node(std::move(halt_node));
     }
 }

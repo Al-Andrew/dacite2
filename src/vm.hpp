@@ -24,6 +24,7 @@ public:
 private:
     std::vector<CompiledModule> modules;
     std::vector<uint64_t> stack;
+    uint64_t last_call_stack_size = 0;
 };
 
 } // namespace dacite
