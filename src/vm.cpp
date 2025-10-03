@@ -5,7 +5,7 @@
 #include <cinttypes>
 
 
-#define DACITE_TRACE_EXECUTION 0
+#define DACITE_TRACE_EXECUTION 1
 
 #if DACITE_TRACE_EXECUTION
     #define DBG_PRINT(X, ...) printf(X "\n", ##__VA_ARGS__)
@@ -49,7 +49,7 @@ void print_stack_state(const std::vector<uint64_t>& stack) {
 #if DACITE_TRACE_EXECUTION
     #define PRINT_STACK_STATE() print_stack_state(stack)
     #define TRACE_INSTRUCTION(op) DBG_PRINT("PC %zu: Executing %s", pc, bytecode_op_to_string(op)); PRINT_STACK_STATE()
-    #define TRACE_INSTRUCTION_WITH_OPERAND(op, operand) DBG_PRINT("PC %zu: Executing %s (operand: %u)", pc, bytecode_op_to_string(op), operand); PRINT_STACK_STATE()
+    #define TRACE_INSTRUCTION_WITH_OPERAND(op, operand) DBG_PRINT("PC %zu: Executing %s (operand: %d)", pc, bytecode_op_to_string(op), operand); PRINT_STACK_STATE()
 #else
     #define PRINT_STACK_STATE()
     #define TRACE_INSTRUCTION(op)
@@ -198,13 +198,15 @@ bool VM::run() {
                     fprintf(stderr, "Error: LOAD instruction missing operand\n");
                     return false;
                 }
-                uint32_t where = module.bytecode[pc + 1];
+                int32_t where = module.bytecode[pc + 1];
                 TRACE_INSTRUCTION_WITH_OPERAND(op, where);
-                if(where / sizeof(uint64_t) >= stack.size()) {
-                    fprintf(stderr, "Error: LOAD instruction has invalid stack offset %u\n", where);
-                    return false;
-                }
-                uint64_t value = stack[last_call_stack_size + where / sizeof(uint64_t)];
+                // if(where / sizeof(uint64_t) >= stack.size()) {
+                //     fprintf(stderr, "Error: LOAD instruction has invalid stack offset %u\n", where);
+                //     return false;
+                // }
+                uint32_t computed_index = (int32_t)last_call_stack_size + where / sizeof(uint64_t);
+                DBG_PRINT("last_call_stack_size: %" PRIu64 ", where: %d, computed index: %d", last_call_stack_size, where, computed_index);
+                uint64_t value = stack[computed_index];
                 stack.push_back(value);
                 pc += 2; // advance past LOAD and its operand
             } break;
@@ -278,6 +280,7 @@ bool VM::run() {
                     fprintf(stderr, "Error: CALL instruction has invalid function offset %u\n", function_offset);
                     return false;
                 }
+
                 // save the return adress
                 stack.push_back(pc + 2); // return address is after the CALL instruction and its operand
                 // save the previous last_call_stack_size

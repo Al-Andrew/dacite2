@@ -23,6 +23,7 @@ struct FunctionDeclaration;
 struct Block;
 struct ReturnStatement;
 struct FunctionCall;
+struct FunctionParameterDeclaration;
 
 // Node variant type containing all possible node types
 using ASTNodeVariant = std::variant<
@@ -38,7 +39,8 @@ using ASTNodeVariant = std::variant<
     FunctionDeclaration,
     Block,
     ReturnStatement,
-    FunctionCall
+    FunctionCall,
+    FunctionParameterDeclaration
 >;
 
 // Index type for referencing nodes
@@ -95,11 +97,12 @@ struct UnaryPrefixExpression {
 
 struct FunctionDeclaration {
     Token name;
+    std::vector<NodeIndex> parameters;
     NodeIndex return_type;
     NodeIndex body;
 
-    FunctionDeclaration(const Token& n, NodeIndex ret_type, NodeIndex b)
-        : name(n), return_type(ret_type), body(b) {}
+    FunctionDeclaration(const Token& name)
+        : name(name), return_type(INVALID_NODE_INDEX), body(INVALID_NODE_INDEX) {}
 };
 
 struct Block {
@@ -121,6 +124,14 @@ struct FunctionCall {
     std::vector<NodeIndex> arguments;
     
     FunctionCall(NodeIndex c) : callee(c) {}
+};
+
+struct FunctionParameterDeclaration {
+    Token name;
+    NodeIndex type;
+
+    FunctionParameterDeclaration(const Token& n, NodeIndex t)
+        : name(n), type(t) {}
 };
 
 struct AST {

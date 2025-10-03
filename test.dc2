@@ -1,22 +1,14 @@
 
 fun main : () -> u8 = {
 
-    let x :i32 = 55;
-
-    x = x + 15;
-
-    @print(x);
-    # intrinsincs start with @
-    @print(42);
-
-    @print(main2());
+    @print(test(33));
     return 0;
 };
 
-fun main2 : () -> u32 = {
+fun test : (param1: u32) -> u32 = {
+    return another_test(param1) * param1;
+};
 
-    @print(32);
-    @print(44);
-
-    return 42;
-}
+fun another_test : (x: u32) -> u32 = {
+    return x + 33;
+};

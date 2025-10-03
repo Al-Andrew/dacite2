@@ -1,4 +1,5 @@
 #include "parser.hpp"
+#include "codegen.hpp"
 #include <cstdio>
 
 #define DBG_PRINT(X, ...) printf(X "\n", ##__VA_ARGS__)
@@ -50,6 +51,9 @@ namespace dacite {
                 std::string lexeme{node.name.lexeme};
                 printf("%*sFunctionDeclaration: %s\n", indent * 2, "", lexeme.c_str());
                 print_node(node.return_type, indent + 1);
+                for (NodeIndex param_index : node.parameters) {
+                    print_node(param_index, indent + 1);
+                }
                 print_node(node.body, indent + 1);
             } else if constexpr (std::is_same_v<T, Block>) {
                 printf("%*sBlock\n", indent * 2, "");
@@ -61,7 +65,18 @@ namespace dacite {
                 print_node(node.expression, indent + 1);
             } else if constexpr (std::is_same_v<T, IntrinsicHalt>) {
                 printf("%*sIntrinsicHalt\n", indent * 2, "");
-            } else {
+            } else if constexpr (std::is_same_v<T, FunctionCall>) {
+                printf("%*sFunctionCall\n", indent * 2, "");
+                print_node(node.callee, indent + 1);
+                for (NodeIndex arg_index : node.arguments) {
+                    print_node(arg_index, indent + 1);
+                }
+            } else if constexpr (std::is_same_v<T, FunctionParameterDeclaration>) {
+                std::string lexeme{node.name.lexeme};
+                printf("%*sFunctionParameterDeclaration: %s\n", indent * 2, "", lexeme.c_str());
+                print_node(node.type, indent + 1);
+            }
+            else {
                 printf("%*s(unknown node type)\n", indent * 2, "");
             }
         }, nodes[index]);
@@ -217,7 +232,8 @@ namespace dacite {
             if(auto [l_bp, _] = get_postfix_binding(op_token.type); l_bp != 0) {
                 
                 if(op_token.type == Token::Type::Lparen) {
-                    return parse_function_call(lhs);
+                    lhs = parse_function_call(lhs);
+                    continue;
                 } else {
                     fprintf(stderr, "Error: Unknown postfix operator %d at token %zu\n", (int)op_token.type, index - 1);
                     return INVALID_NODE_INDEX;
@@ -422,7 +438,7 @@ namespace dacite {
     auto Parser::parse_function_declaration() -> NodeIndex {
         DBG_PRINT("parse_function_declaration: index=%zu", index);
         
-        // Expecting: fun <identifier> : () -> <type> = <block>
+        // Expecting: fun <identifier> : ([<argname>: <argtype>], ...) -> <type> = <block>
         if (!consume_token(Token::Type::Keyword_Fun, "fun")) {
             return INVALID_NODE_INDEX;
         }
@@ -433,6 +449,9 @@ namespace dacite {
         Token name_token = tokens[index++]; // consume function name
         DBG_PRINT("Parsed function name: %.*s", (int)name_token.lexeme.size(), name_token.lexeme.data());
 
+        FunctionDeclaration func_decl_node(name_token);
+
+
         if (!consume_token(Token::Type::Colon, ": after function name")) {
             return INVALID_NODE_INDEX;
         }
@@ -440,6 +459,30 @@ namespace dacite {
         // TODO: parse parameters
         if (!consume_token(Token::Type::Lparen, "( after ':'")) {
             return INVALID_NODE_INDEX;
+        }
+
+        while (!is_at_end() && current_token().type != Token::Type::Rparen) {
+            
+            if(!expect_token(Token::Type::Identifier, "parameter name")) {
+                return INVALID_NODE_INDEX;
+            }
+            Token param_name_token = tokens[index++]; // consume parameter name
+            DBG_PRINT("Parsed parameter name: %.*s", (int)param_name_token.lexeme.size(), param_name_token.lexeme.data());
+
+            if (!consume_token(Token::Type::Colon, ": after parameter name")) {
+                return INVALID_NODE_INDEX;
+            }
+
+            if(!expect_token(Token::Type::Identifier, "parameter type")) {
+                return INVALID_NODE_INDEX;
+            }
+            Token param_type_token = tokens[index++]; // consume parameter type // TODO: support complex types
+            DBG_PRINT("Parsed parameter type: %.*s", (int)param_type_token.lexeme.size(), param_type_token.lexeme.data());
+
+            auto param_type_index = ast.add_node(Type(param_type_token));
+            FunctionParameterDeclaration param_decl_node(param_name_token, param_type_index);
+            func_decl_node.parameters.push_back(ast.add_node(std::move(param_decl_node)));
+
         }
 
         if (!consume_token(Token::Type::Rparen, ") after '('")) {
@@ -458,6 +501,8 @@ namespace dacite {
         auto return_type_index = ast.add_node(Type(return_type_token));
         DBG_PRINT("Parsed return type: %.*s", (int)return_type_token.lexeme.size(), return_type_token.lexeme.data());
 
+        func_decl_node.return_type = return_type_index;
+
         if (!consume_token(Token::Type::Equals, "= after return type")) {
             return INVALID_NODE_INDEX;
         }
@@ -468,12 +513,13 @@ namespace dacite {
             return INVALID_NODE_INDEX;
         }
 
+        func_decl_node.body = body;
+
         if(expect_token(Token::Type::Semicolon, "; after function body")) {
             consume_token(Token::Type::Semicolon, "; after function body");
         }
 
         // Construct AST node for function declaration
-        FunctionDeclaration func_decl_node(name_token, return_type_index, body);
         return ast.add_node(std::move(func_decl_node));
     }
 

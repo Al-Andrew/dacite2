@@ -1,4 +1,5 @@
 #include "codegen.hpp"
+#include "parser.hpp"
 #include <cstdint>
 #include <iostream>
 #include <cstdio>
@@ -207,7 +208,7 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
             return;
     }
 }
-    
+
     auto CodeGenerator::visit_node(const FunctionDeclaration& node) -> void {
         DBG_PRINT("Visiting FunctionDeclaration: %.*s", (int)node.name.lexeme.size(), node.name.lexeme.data());
         
@@ -218,6 +219,28 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         }
         uint32_t func_start_offset = module.bytecode.size();
         module.function_offsets[func_name] = func_start_offset;
+
+        for(auto param_index: node.parameters) {
+            if(const FunctionParameterDeclaration* param_node = ast->get_node<FunctionParameterDeclaration>(param_index); param_node) {
+                const Token& param_name_token = param_node->name;
+                std::string param_name{param_name_token.lexeme};
+                DBG_PRINT("Function parameter: %s", param_name.c_str());
+                
+                if (variable_stack_offset_table.find(param_name) != variable_stack_offset_table.end()) {
+                    fprintf(stderr, "Error: Parameter %s already declared as variable\n", param_name.c_str());
+                    return;
+                }
+                
+                uint32_t var_offset = variable_stack_offset_table.size();
+                variable_stack_offset_table[param_name] = var_offset * sizeof(uint64_t);
+                // load the arguments from below the return address and previous frame pointer
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
+                module.bytecode.push_back(((var_offset - 2 - 1) * sizeof(uint64_t)));
+            } else {
+                fprintf(stderr, "Error: Function parameter is not a FunctionParameterDeclaration node\n");
+                return;
+            }
+        }
 
         visit_node(node.body);
     }
@@ -239,9 +262,10 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         DBG_PRINT("Visiting IntrinsicHalt");
         module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::HALT));
     }
-
+    
     auto CodeGenerator::visit_node(const FunctionCall& node) -> void {
         DBG_PRINT("Visiting FunctionCall");
+        
         for (NodeIndex arg_index : node.arguments) {
             visit_node(arg_index);
         }
@@ -272,6 +296,7 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
             fprintf(stderr, "Error: Function call callee is not an Identifier\n");
             return;
         }
+
     }
 
     auto CodeGenerator::patch_defered_functions() -> void {
