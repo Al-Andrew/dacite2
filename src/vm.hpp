@@ -24,7 +24,10 @@ public:
 private:
     std::vector<CompiledModule> modules;
     std::vector<uint64_t> stack;
-    uint64_t last_call_stack_size = 0;
+    
+    // x86-style stack management
+    size_t rsp = 0;  // Stack pointer (index into stack)
+    size_t rbp = 0;  // Base pointer (frame pointer)
 };
 
 } // namespace dacite

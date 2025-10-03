@@ -89,19 +89,26 @@ auto CodeGenerator::visit_node(const VariableDeclaration& node) -> void {
         return;
     }
     
-    // Reserve space on stack for variable
-    uint32_t var_offset = variable_stack_offset_table.size();
-    variable_stack_offset_table[var_name] = var_offset * sizeof(uint64_t);
+    // Allocate space for local variable (positive offset from RBP)
+    int32_t next_local_offset = 0;
+    for (const auto& [name, offset] : variable_stack_offset_table) {
+        if (offset >= 0) { // Only consider local variables (positive offsets)
+            next_local_offset = std::max(next_local_offset, offset + (int32_t)sizeof(uint64_t));
+        }
+    }
+    
+    variable_stack_offset_table[var_name] = next_local_offset;
 
-    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::RESERVE));
-    module.bytecode.push_back(sizeof(uint64_t)); // reserve 8 bytes for u64
+    // Allocate stack space
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD_RSP));
+    module.bytecode.push_back(sizeof(uint64_t)); // allocate 8 bytes for u64
 
     // Generate code for expression
     visit_node(node.initializer);
     
     // Store top of stack into variable location
-    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
-    module.bytecode.push_back(var_offset * sizeof(uint64_t));
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE_RBP));
+    module.bytecode.push_back(next_local_offset);
 }
 
 auto CodeGenerator::visit_node(const Identifier& node) -> void {
@@ -115,8 +122,8 @@ auto CodeGenerator::visit_node(const Identifier& node) -> void {
         return;
     }
     
-    uint32_t var_offset = it->second;
-    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
+    int32_t var_offset = it->second;
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD_RBP));
     module.bytecode.push_back(var_offset);
 }
 
@@ -175,8 +182,8 @@ auto CodeGenerator::visit_node(const BinaryExpression& node) -> void {
                     fprintf(stderr, "Error: Variable %s not declared\n", var_name.c_str());
                     return;
                 }
-                uint32_t var_offset = it->second;
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE));
+                int32_t var_offset = it->second;
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE_RBP));
                 module.bytecode.push_back(var_offset);
             } else {
                 fprintf(stderr, "Error: Assignment target is not an Identifier\n");
@@ -220,22 +227,29 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         uint32_t func_start_offset = module.bytecode.size();
         module.function_offsets[func_name] = func_start_offset;
 
+        // x86-style function prologue:
+        // 1. Push old RBP (done by CALL instruction in caller)
+        // 2. Set RBP to current RSP (establish new frame)
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SET_RBP));
+
+        // Save the current variable table to restore later
+        auto saved_var_table = variable_stack_offset_table;
+        variable_stack_offset_table.clear();
+
+        // Process parameters - they are already on the stack below the saved RBP and return address
+        // Stack layout at function entry: [...] [param_n] ... [param_1] [return_addr] [old_rbp] <- RBP=RSP
+        // So parameters are at negative offsets from RBP
+        int32_t param_offset = -((int32_t)node.parameters.size() + 2) * sizeof(uint64_t); // +2 for return_addr and old_rbp
+        
         for(auto param_index: node.parameters) {
             if(const FunctionParameterDeclaration* param_node = ast->get_node<FunctionParameterDeclaration>(param_index); param_node) {
                 const Token& param_name_token = param_node->name;
                 std::string param_name{param_name_token.lexeme};
-                DBG_PRINT("Function parameter: %s", param_name.c_str());
+                DBG_PRINT("Function parameter: %s at offset %d", param_name.c_str(), param_offset);
                 
-                if (variable_stack_offset_table.find(param_name) != variable_stack_offset_table.end()) {
-                    fprintf(stderr, "Error: Parameter %s already declared as variable\n", param_name.c_str());
-                    return;
-                }
-                
-                uint32_t var_offset = variable_stack_offset_table.size();
-                variable_stack_offset_table[param_name] = var_offset * sizeof(uint64_t);
-                // load the arguments from below the return address and previous frame pointer
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD));
-                module.bytecode.push_back(((var_offset - 2 - 1) * sizeof(uint64_t)));
+                // Store parameter offset relative to RBP
+                variable_stack_offset_table[param_name] = param_offset;
+                param_offset += sizeof(uint64_t); // next parameter
             } else {
                 fprintf(stderr, "Error: Function parameter is not a FunctionParameterDeclaration node\n");
                 return;
@@ -243,6 +257,9 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         }
 
         visit_node(node.body);
+        
+        // Restore the variable table
+        variable_stack_offset_table = saved_var_table;
     }
 
     auto CodeGenerator::visit_node(const Block& node) -> void {

@@ -26,7 +26,16 @@ enum class BytecodeOp : uint32_t {
     CALL = 12, // <function_offset>
     RETURN = 13,
 
-    HALT = 14,
+    // Stack frame management opcodes (x86-style)
+    PUSH_RBP = 15,    // Push base pointer onto stack
+    POP_RBP = 16,     // Pop base pointer from stack
+    SET_RBP = 17,     // Set RBP to current RSP (establish stack frame)
+    ADD_RSP = 18,     // <amount> - Add to stack pointer (allocate stack space)
+    SUB_RSP = 19,     // <amount> - Subtract from stack pointer (deallocate stack space)
+    LOAD_RBP = 20,    // <offset> - Load from [RBP + offset]
+    STORE_RBP = 21,   // <offset> - Store to [RBP + offset]
+
+    HALT = 22,
 };
 
 // Compiled module structure
@@ -73,7 +82,7 @@ private:
     const AST* ast = nullptr;
     CompiledModule module;
     std::map<std::string, std::vector<uint32_t>> deffered_function_offsets;
-    std::map<std::string, uint32_t> variable_stack_offset_table;
+    std::map<std::string, int32_t> variable_stack_offset_table;
 };
 
 }

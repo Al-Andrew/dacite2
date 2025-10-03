@@ -31,23 +31,31 @@ const char* bytecode_op_to_string(BytecodeOp op) {
         case BytecodeOp::JMP: return "JMP";
         case BytecodeOp::CALL: return "CALL";
         case BytecodeOp::RETURN: return "RETURN";
+        case BytecodeOp::PUSH_RBP: return "PUSH_RBP";
+        case BytecodeOp::POP_RBP: return "POP_RBP";
+        case BytecodeOp::SET_RBP: return "SET_RBP";
+        case BytecodeOp::ADD_RSP: return "ADD_RSP";
+        case BytecodeOp::SUB_RSP: return "SUB_RSP";
+        case BytecodeOp::LOAD_RBP: return "LOAD_RBP";
+        case BytecodeOp::STORE_RBP: return "STORE_RBP";
         case BytecodeOp::HALT: return "HALT";
         default: return "UNKNOWN";
     }
 }
 
 // Helper function to print the current stack state
-void print_stack_state(const std::vector<uint64_t>& stack) {
-    printf("    Stack [%zu]: [", stack.size());
-    for(size_t i = 0; i < stack.size(); ++i) {
+void print_stack_state(const std::vector<uint64_t>& stack, size_t rsp, size_t rbp) {
+    printf("    Stack [size=%zu, RSP=%zu, RBP=%zu]: [", stack.size(), rsp, rbp);
+    for(size_t i = 0; i < rsp && i < stack.size(); ++i) {
         if(i > 0) printf(", ");
         printf("%" PRIu64, stack[i]);
+        if(i == rbp) printf("(RBP)");
     }
     printf("]\n");
 }
 
 #if DACITE_TRACE_EXECUTION
-    #define PRINT_STACK_STATE() print_stack_state(stack)
+    #define PRINT_STACK_STATE() print_stack_state(stack, rsp, rbp)
     #define TRACE_INSTRUCTION(op) DBG_PRINT("PC %zu: Executing %s", pc, bytecode_op_to_string(op)); PRINT_STACK_STATE()
     #define TRACE_INSTRUCTION_WITH_OPERAND(op, operand) DBG_PRINT("PC %zu: Executing %s (operand: %d)", pc, bytecode_op_to_string(op), operand); PRINT_STACK_STATE()
 #else
@@ -74,67 +82,80 @@ bool VM::run() {
 
     const CompiledModule& module = modules[current_module_index];
     size_t pc = 0; // program counter
+    
+    // Initialize stack pointers
+    rsp = 0;
+    rbp = 0;
+    
     while(pc < module.bytecode.size()) {
         dacite::BytecodeOp op = static_cast<dacite::BytecodeOp>(module.bytecode[pc]);
         
         switch(op) {
             case dacite::BytecodeOp::PRINT: {
                 TRACE_INSTRUCTION(op);
-                if(stack.size() < 1) {
+                if(rsp == 0) {
                     fprintf(stderr, "Error: PRINT instruction requires at least 1 value on the stack\n");
                     return false;
                 }
-                uint64_t value = stack.back();
-                stack.pop_back();
+                uint64_t value = stack[rsp - 1];
+                rsp--;
                 printf("%" PRIu64 "\n", value);
                 pc += 1;
             } break;
             case dacite::BytecodeOp::ADD: {
                 TRACE_INSTRUCTION(op);
-                if(stack.size() < 2) {
+                if(rsp < 2) {
                     fprintf(stderr, "Error: ADD instruction requires at least 2 values on the stack\n");
                     return false;
                 }
-                uint64_t b = stack.back(); stack.pop_back();
-                uint64_t a = stack.back(); stack.pop_back();
-                stack.push_back(a + b);
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = a + b;
+                rsp++;
                 pc += 1;
             } break;
             case dacite::BytecodeOp::SUBTRACT: {
                 TRACE_INSTRUCTION(op);
-                if(stack.size() < 2) {
+                if(rsp < 2) {
                     fprintf(stderr, "Error: SUBTRACT instruction requires at least 2 values on the stack\n");
                     return false;
                 }
-                uint64_t b = stack.back(); stack.pop_back();
-                uint64_t a = stack.back(); stack.pop_back();
-                stack.push_back(a - b);
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = a - b;
+                rsp++;
                 pc += 1;
             } break;
             case dacite::BytecodeOp::MULTIPLY: {
                 TRACE_INSTRUCTION(op);
-                if(stack.size() < 2) {
+                if(rsp < 2) {
                     fprintf(stderr, "Error: MULTIPLY instruction requires at least 2 values on the stack\n");
                     return false;
                 }
-                uint64_t b = stack.back(); stack.pop_back();
-                uint64_t a = stack.back(); stack.pop_back();
-                stack.push_back(a * b);
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = a * b;
+                rsp++;
                 pc += 1;
             } break;
             case dacite::BytecodeOp::DIVIDE: {
                 TRACE_INSTRUCTION(op);
-                if(stack.size() < 2) {
+                if(rsp < 2) {
                     fprintf(stderr, "Error: DIVIDE instruction requires at least 2 values on the stack\n");
                     return false;
                 }
-                uint64_t b = stack.back(); stack.pop_back();
+                uint64_t b = stack[rsp - 1];
                 if(b == 0) {
                     fprintf(stderr, "Error: Division by zero\n");
                     return false;
                 }
-                uint64_t a = stack.back(); stack.pop_back();
-                stack.push_back(a / b);
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = a / b;
+                rsp++;
                 pc += 1;
             } break;
             case dacite::BytecodeOp::PUSH_CONST: {
@@ -148,17 +169,23 @@ bool VM::run() {
                     return false;
                 }
                 uint64_t value = module.constants[const_index];
-                TRACE_INSTRUCTION_WITH_OPERAND(op, value);
-                stack.push_back(value);
+                TRACE_INSTRUCTION_WITH_OPERAND(op, const_index);
+                
+                // Ensure stack has enough space
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = value;
+                rsp++;
                 pc += 2; // advance past PUSH_CONST and its operand
             } break;
             case dacite::BytecodeOp::POP: {
                 TRACE_INSTRUCTION(op);
-                if(stack.size() < 1) {
+                if(rsp == 0) {
                     fprintf(stderr, "Error: POP instruction requires at least 1 value on the stack\n");
                     return false;
                 }
-                stack.pop_back();
+                rsp--;
                 pc += 1;
             } break;
             case dacite::BytecodeOp::RESERVE: {
@@ -168,9 +195,17 @@ bool VM::run() {
                 }
                 uint32_t how_much = module.bytecode[pc + 1];
                 TRACE_INSTRUCTION_WITH_OPERAND(op, how_much);
-                for(uint32_t i = 0; i < how_much / sizeof(uint64_t); i++) {
-                    stack.push_back(0); // initialize reserved space with zeros
+                
+                uint32_t slots = how_much / sizeof(uint64_t);
+                // Ensure stack has enough space
+                if(rsp + slots > stack.size()) {
+                    stack.resize(rsp + slots);
                 }
+                // Initialize reserved space with zeros
+                for(uint32_t i = 0; i < slots; i++) {
+                    stack[rsp + i] = 0;
+                }
+                rsp += slots;
                 pc += 2; // advance past RESERVE and its operand
             } break;
             case dacite::BytecodeOp::STORE: {
@@ -180,17 +215,18 @@ bool VM::run() {
                 }
                 uint32_t where = module.bytecode[pc + 1];
                 TRACE_INSTRUCTION_WITH_OPERAND(op, where);
-                if(stack.size() < 1) {
+                if(rsp == 0) {
                     fprintf(stderr, "Error: STORE instruction requires at least 1 value on the stack\n");
                     return false;
                 }
-                if(where / sizeof(uint64_t) >= stack.size()) {
-                    fprintf(stderr, "Error: STORE instruction has invalid stack offset %u\n", where);
+                uint32_t stack_offset = rbp + where / sizeof(uint64_t);
+                if(stack_offset >= stack.size()) {
+                    fprintf(stderr, "Error: STORE instruction has invalid stack offset %u\n", stack_offset);
                     return false;
                 }
-                uint64_t value = stack.back();
-                stack.pop_back();
-                stack[last_call_stack_size + where / sizeof(uint64_t)] = value;
+                uint64_t value = stack[rsp - 1];
+                rsp--;
+                stack[stack_offset] = value;
                 pc += 2; // advance past STORE and its operand
             } break;
             case dacite::BytecodeOp::LOAD: {
@@ -200,15 +236,126 @@ bool VM::run() {
                 }
                 int32_t where = module.bytecode[pc + 1];
                 TRACE_INSTRUCTION_WITH_OPERAND(op, where);
-                // if(where / sizeof(uint64_t) >= stack.size()) {
-                //     fprintf(stderr, "Error: LOAD instruction has invalid stack offset %u\n", where);
-                //     return false;
-                // }
-                uint32_t computed_index = (int32_t)last_call_stack_size + where / sizeof(uint64_t);
-                DBG_PRINT("last_call_stack_size: %" PRIu64 ", where: %d, computed index: %d", last_call_stack_size, where, computed_index);
-                uint64_t value = stack[computed_index];
-                stack.push_back(value);
+                
+                uint32_t stack_offset = rbp + where / sizeof(uint64_t);
+                if(stack_offset >= stack.size()) {
+                    fprintf(stderr, "Error: LOAD instruction has invalid stack offset %u\n", stack_offset);
+                    return false;
+                }
+                DBG_PRINT("rbp: %zu, where: %d, stack_offset: %u", rbp, where, stack_offset);
+                uint64_t value = stack[stack_offset];
+                
+                // Ensure stack has enough space
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = value;
+                rsp++;
                 pc += 2; // advance past LOAD and its operand
+            } break;
+            case dacite::BytecodeOp::PUSH_RBP: {
+                TRACE_INSTRUCTION(op);
+                // Ensure stack has enough space
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = rbp;
+                rsp++;
+                pc += 1;
+            } break;
+            case dacite::BytecodeOp::POP_RBP: {
+                TRACE_INSTRUCTION(op);
+                if(rsp == 0) {
+                    fprintf(stderr, "Error: POP_RBP instruction requires at least 1 value on the stack\n");
+                    return false;
+                }
+                rsp--;
+                rbp = stack[rsp];
+                pc += 1;
+            } break;
+            case dacite::BytecodeOp::SET_RBP: {
+                TRACE_INSTRUCTION(op);
+                rbp = rsp;
+                pc += 1;
+            } break;
+            case dacite::BytecodeOp::ADD_RSP: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: ADD_RSP instruction missing operand\n");
+                    return false;
+                }
+                uint32_t amount = module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, amount);
+                
+                uint32_t slots = amount / sizeof(uint64_t);
+                // Ensure stack has enough space
+                if(rsp + slots > stack.size()) {
+                    stack.resize(rsp + slots);
+                }
+                rsp += slots;
+                pc += 2;
+            } break;
+            case dacite::BytecodeOp::SUB_RSP: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: SUB_RSP instruction missing operand\n");
+                    return false;
+                }
+                uint32_t amount = module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, amount);
+                
+                uint32_t slots = amount / sizeof(uint64_t);
+                if(rsp < slots) {
+                    fprintf(stderr, "Error: SUB_RSP would underflow stack\n");
+                    return false;
+                }
+                rsp -= slots;
+                pc += 2;
+            } break;
+            case dacite::BytecodeOp::LOAD_RBP: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: LOAD_RBP instruction missing operand\n");
+                    return false;
+                }
+                int32_t offset = (int32_t)module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, offset);
+                
+                // Calculate address: RBP + (offset / 8) where offset can be negative for parameters
+                int64_t addr = (int64_t)rbp + (offset / (int32_t)sizeof(uint64_t));
+                if(addr < 0 || addr >= (int64_t)stack.size()) {
+                    fprintf(stderr, "Error: LOAD_RBP has invalid address %ld (rbp=%zu, offset=%d)\n", addr, rbp, offset);
+                    return false;
+                }
+                
+                // Ensure stack has enough space
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = stack[addr];
+                rsp++;
+                pc += 2;
+            } break;
+            case dacite::BytecodeOp::STORE_RBP: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: STORE_RBP instruction missing operand\n");
+                    return false;
+                }
+                int32_t offset = (int32_t)module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, offset);
+                
+                if(rsp == 0) {
+                    fprintf(stderr, "Error: STORE_RBP requires at least 1 value on the stack\n");
+                    return false;
+                }
+                
+                // Calculate address: RBP + (offset / 8) where offset can be negative for parameters
+                int64_t addr = (int64_t)rbp + (offset / (int32_t)sizeof(uint64_t));
+                if(addr < 0 || addr >= (int64_t)stack.size()) {
+                    fprintf(stderr, "Error: STORE_RBP has invalid address %ld (rbp=%zu, offset=%d)\n", addr, rbp, offset);
+                    return false;
+                }
+                
+                rsp--;
+                stack[addr] = stack[rsp];
+                pc += 2;
             } break;
             case dacite::BytecodeOp::HALT: {
                 TRACE_INSTRUCTION(op);
@@ -229,45 +376,57 @@ bool VM::run() {
             } break;
             case dacite::BytecodeOp::RETURN: {
                 TRACE_INSTRUCTION(op);
-                // the stack right now should look like this:
-                // [... previous stack ... | (return_address) previous_last_call_stack | ... function stack ... ] return_value
-                // we need to pop the return_value
-                // we need to pop everything above previous_last_call_stack
-                if(stack.size() < 1) {
+                // In x86-style calling convention:
+                // Stack layout: [...] [return_value] [old_rbp] [return_address] <- RSP
+                // We need to:
+                // 1. Get the return value (already on top)
+                // 2. Restore RSP to point to old_rbp
+                // 3. Restore RBP from stack
+                // 4. Get return address
+                // 5. Jump to return address
+                // 6. Push return value back
+                
+                if(rsp == 0) {
                     fprintf(stderr, "Error: RETURN instruction requires at least 1 value on the stack\n");
                     return false;
                 }
-                if(last_call_stack_size == 0 || last_call_stack_size > stack.size()) {
-                    fprintf(stderr, "Error: RETURN instruction has invalid last_call_stack_size %" PRIu64 "\n", last_call_stack_size);
+                
+                // Get return value
+                uint64_t return_value = stack[rsp - 1];
+                
+                // Restore RSP to the position where old RBP and return address are stored
+                rsp = rbp;
+                
+                // Restore RBP
+                if(rsp == 0) {
+                    fprintf(stderr, "Error: RETURN instruction invalid stack state for RBP restore\n");
                     return false;
                 }
-                uint64_t return_value = stack.back();
-                stack.pop_back();
-
-                // pop everything above last_call_stack_size
-                while(stack.size() > last_call_stack_size) {
-                    stack.pop_back();
-                }
-                // now the top of the stack should be the previous last_call_stack_size
-                uint64_t previous_last_call_stack_size = stack.back();
-                stack.pop_back();
-                last_call_stack_size = previous_last_call_stack_size;
-                // set pc to the return address which is now on top of the stack
-                if(stack.size() < 1) {
-                    fprintf(stderr, "Error: RETURN instruction requires a return address on the stack\n");
+                rsp--;
+                rbp = stack[rsp];
+                
+                // Get return address
+                if(rsp == 0) {
+                    fprintf(stderr, "Error: RETURN instruction invalid stack state for return address\n");
                     return false;
                 }
-                uint64_t return_address = stack.back();
-                stack.pop_back();
+                rsp--;
+                uint64_t return_address = stack[rsp];
+                
                 if(return_address >= module.bytecode.size()) {
                     fprintf(stderr, "Error: RETURN instruction has invalid return address %" PRIu64 "\n", return_address);
                     return false;
                 }
+                
                 DBG_PRINT("Returning to address %" PRIu64 "\n", return_address);
                 pc = return_address;
 
-                // push the return value back onto the stack
-                stack.push_back(return_value);
+                // Push the return value back onto the stack
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = return_value;
+                rsp++;
             } break;
             case dacite::BytecodeOp::CALL: {
                 if(pc + 1 >= module.bytecode.size()) {
@@ -281,13 +440,31 @@ bool VM::run() {
                     return false;
                 }
 
-                // save the return adress
-                stack.push_back(pc + 2); // return address is after the CALL instruction and its operand
-                // save the previous last_call_stack_size
-                stack.push_back(last_call_stack_size);
-                // Save current pc to return to after function call
-                last_call_stack_size = stack.size();
-                pc = function_offset; // jump to function
+                // x86-style function call:
+                // 1. Push return address
+                // 2. Push old RBP
+                // 3. Set RBP to current RSP
+                // 4. Jump to function
+                
+                // Push return address (instruction after CALL)
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = pc + 2;
+                rsp++;
+                
+                // Push old RBP
+                if(rsp >= stack.size()) {
+                    stack.resize(rsp + 1);
+                }
+                stack[rsp] = rbp;
+                rsp++;
+                
+                // Set RBP to current RSP (establish new frame)
+                rbp = rsp;
+                
+                // Jump to function
+                pc = function_offset;
             } break;
             default: {
                 fprintf(stderr, "Error: Unknown bytecode operation %u at pc %zu\n", (uint32_t)op, pc);
@@ -301,6 +478,8 @@ bool VM::run() {
 void VM::reset() {
     modules.clear();
     stack.clear();
+    rsp = 0;
+    rbp = 0;
 }
 
 } // namespace dacite
