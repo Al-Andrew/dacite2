@@ -36,6 +36,10 @@ const char* bytecode_op_to_string(BytecodeOp op) {
         case BytecodeOp::LOAD_REG: return "LOAD_REG";
         case BytecodeOp::STORE_REG: return "STORE_REG";
         case BytecodeOp::HALT: return "HALT";
+        case BytecodeOp::CMP_EQ: return "CMP_EQ";
+        case BytecodeOp::CMP_NEQ: return "CMP_NEQ";
+        case BytecodeOp::CMP_LT: return "CMP_LT";
+        case BytecodeOp::CMP_GT: return "CMP_GT";
         default: return "UNKNOWN";
     }
 }
@@ -468,6 +472,58 @@ bool VM::run() {
                 
                 // Jump to function
                 pc = function_offset;
+            } break;
+            case dacite::BytecodeOp::CMP_EQ: {
+                TRACE_INSTRUCTION(op);
+                if(rsp < 2) {
+                    fprintf(stderr, "Error: CMP_EQ instruction requires at least 2 values on the stack\n");
+                    return false;
+                }
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = (a == b) ? 1 : 0;
+                rsp++;
+                pc += 1;
+            } break;
+            case dacite::BytecodeOp::CMP_NEQ: {
+                TRACE_INSTRUCTION(op);
+                if(rsp < 2) {
+                    fprintf(stderr, "Error: CMP_NEQ instruction requires at least 2 values on the stack\n");
+                    return false;
+                }
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = (a != b) ? 1 : 0;
+                rsp++;
+                pc += 1;
+            } break;
+            case dacite::BytecodeOp::CMP_LT: {
+                TRACE_INSTRUCTION(op);
+                if(rsp < 2) {
+                    fprintf(stderr, "Error: CMP_LT instruction requires at least 2 values on the stack\n");
+                    return false;
+                }
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = (a < b) ? 1 : 0;
+                rsp++;
+                pc += 1;
+            } break;
+            case dacite::BytecodeOp::CMP_GT: {
+                TRACE_INSTRUCTION(op);
+                if(rsp < 2) {
+                    fprintf(stderr, "Error: CMP_GT instruction requires at least 2 values on the stack\n");
+                    return false;
+                }
+                uint64_t b = stack[rsp - 1];
+                uint64_t a = stack[rsp - 2];
+                rsp -= 2;
+                stack[rsp] = (a > b) ? 1 : 0;
+                rsp++;
+                pc += 1;
             } break;
             default: {
                 fprintf(stderr, "Error: Unknown bytecode operation %u at pc %zu\n", (uint32_t)op, pc);

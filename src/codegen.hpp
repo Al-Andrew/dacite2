@@ -23,7 +23,7 @@ enum class BytecodeOp : uint32_t {
     DIVIDE = 5,
     PUSH_CONST = 6,
     POP = 7,
-    RESERVE = 8, // <how much> 
+    RESERVE = 8, // <how much>
     STORE = 9, // <where>
     LOAD = 10, // <where>
     JMP = 11, // <where>
@@ -38,6 +38,12 @@ enum class BytecodeOp : uint32_t {
     STORE_REG = 21,   // <reg_id> <offset> - Store to [register + offset]
 
     HALT = 22,
+
+    // Comparison operations
+    CMP_EQ = 23,      // Compare equal (==)
+    CMP_NEQ = 24,     // Compare not equal (!=)
+    CMP_LT = 25,      // Compare less than (<)
+    CMP_GT = 26,      // Compare greater than (>)
 };
 
 // Compiled module structure

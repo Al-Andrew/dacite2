@@ -170,6 +170,18 @@ auto CodeGenerator::visit_node(const BinaryExpression& node) -> void {
         case Token::Type::Slash:
             module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::DIVIDE));
             break;
+        case Token::Type::DoubleEquals:
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CMP_EQ));
+            break;
+        case Token::Type::NotEquals:
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CMP_NEQ));
+            break;
+        case Token::Type::LessThan:
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CMP_LT));
+            break;
+        case Token::Type::GreaterThan:
+            module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::CMP_GT));
+            break;
         case Token::Type::Equals:
             if (node.left == INVALID_NODE_INDEX) {
                 fprintf(stderr, "Error: Assignment target is invalid\n");

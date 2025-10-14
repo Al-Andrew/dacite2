@@ -134,10 +134,16 @@ namespace dacite {
                 return {7, 8};
             case Token::Type::Slash:
                 return {7, 8};
-        case Token::Type::Equals:
-            return {2, 1};
-        default:
-            return {0, 0};
+            case Token::Type::DoubleEquals:
+            case Token::Type::NotEquals:
+                return {3, 4};
+            case Token::Type::LessThan:
+            case Token::Type::GreaterThan:
+                return {3, 4};
+            case Token::Type::Equals:
+                return {2, 1};
+            default:
+                return {0, 0};
         }
     }
 

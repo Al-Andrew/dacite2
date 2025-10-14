@@ -36,6 +36,10 @@ namespace dacite {
             Slash,
     
             Equals,
+            DoubleEquals,
+            NotEquals,
+            LessThan,
+            GreaterThan,
 
             Comma,
             Colon,
@@ -70,6 +74,10 @@ namespace dacite {
         arr[Token::Type::Star] = "Star";
         arr[Token::Type::Slash] = "Slash";
         arr[Token::Type::Equals] = "Equals";
+        arr[Token::Type::DoubleEquals] = "DoubleEquals";
+        arr[Token::Type::NotEquals] = "NotEquals";
+        arr[Token::Type::LessThan] = "LessThan";
+        arr[Token::Type::GreaterThan] = "GreaterThan";
         arr[Token::Type::Comma] = "Comma";
         arr[Token::Type::Colon] = "Colon";
         arr[Token::Type::Semicolon] = "Semicolon";
@@ -88,7 +96,10 @@ namespace dacite {
         map['-'] = Token::Type::Minus;
         map['*'] = Token::Type::Star;
         map['/'] = Token::Type::Slash;
+        map['<'] = Token::Type::LessThan;
+        map['>'] = Token::Type::GreaterThan;
         map['='] = Token::Type::Equals;
+        map['!'] = Token::Type::Unknown;  // Will be handled by two_char_intruducers_map for !=
         map[':'] = Token::Type::Colon;
         map[';'] = Token::Type::Semicolon;
         map[','] = Token::Type::Comma;
@@ -104,6 +115,8 @@ namespace dacite {
     static constexpr std::array<Pair<const char*, Token::Type>, 256> two_char_intruducers_map = []() constexpr {
         std::array<Pair<const char*, Token::Type>, 256> map{};
         map['-'] = {"->", Token::Type::Arrow};
+        map['='] = {"==", Token::Type::DoubleEquals};
+        map['!'] = {"!=", Token::Type::NotEquals};
         return map;
     }();
 
