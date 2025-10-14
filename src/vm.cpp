@@ -302,8 +302,8 @@ bool VM::run() {
 
 
             case dacite::BytecodeOp::LOAD_REG: {
-                if(pc + 2 >= module.bytecode.size()) {
-                    fprintf(stderr, "Error: LOAD_REG instruction missing operands\n");
+                if(pc + 3 > module.bytecode.size()) {
+                    fprintf(stderr, "Error: LOAD_REG instruction missing operands (needs 2 operands: reg_id and offset)\n");
                     return false;
                 }
                 uint32_t reg_id = module.bytecode[pc + 1];
@@ -331,7 +331,7 @@ bool VM::run() {
                 pc += 3;
             } break;
             case dacite::BytecodeOp::STORE_REG: {
-                if(pc + 2 >= module.bytecode.size()) {
+                if(pc + 3 > module.bytecode.size()) {
                     fprintf(stderr, "Error: STORE_REG instruction missing operands\n");
                     return false;
                 }
