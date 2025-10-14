@@ -25,9 +25,8 @@ private:
     std::vector<CompiledModule> modules;
     std::vector<uint64_t> stack;
     
-    // x86-style stack management
-    size_t rsp = 0;  // Stack pointer (index into stack)
-    size_t rbp = 0;  // Base pointer (frame pointer)
+    // Generic register system (initially supporting RSP and RBP)
+    std::vector<size_t> registers = {0, 0};  // registers[0] = RSP, registers[1] = RBP
 };
 
 } // namespace dacite

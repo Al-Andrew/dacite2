@@ -5,9 +5,14 @@
 #include <map>
 #include <string>
 #include <cstdint>
-#include <functional>
 
 namespace dacite {
+
+// Register IDs
+enum class RegisterId : uint32_t {
+    RSP = 0,  // Stack pointer
+    RBP = 1,  // Base pointer
+};
 
 // Bytecode operations
 enum class BytecodeOp : uint32_t {
@@ -26,14 +31,11 @@ enum class BytecodeOp : uint32_t {
     CALL = 12, // <function_offset>
     RETURN = 13,
 
-    // Stack frame management opcodes (x86-style)
-    PUSH_RBP = 15,    // Push base pointer onto stack
-    POP_RBP = 16,     // Pop base pointer from stack
-    SET_RBP = 17,     // Set RBP to current RSP (establish stack frame)
-    ADD_RSP = 18,     // <amount> - Add to stack pointer (allocate stack space)
-    SUB_RSP = 19,     // <amount> - Subtract from stack pointer (deallocate stack space)
-    LOAD_RBP = 20,    // <offset> - Load from [RBP + offset]
-    STORE_RBP = 21,   // <offset> - Store to [RBP + offset]
+    // Minimal register management opcodes
+    PUSH_REG = 15,    // <reg_id> - Push register onto stack
+    POP_REG = 16,     // <reg_id> - Pop from stack into register
+    LOAD_REG = 20,    // <reg_id> <offset> - Load from [register + offset]
+    STORE_REG = 21,   // <reg_id> <offset> - Store to [register + offset]
 
     HALT = 22,
 };
@@ -76,6 +78,11 @@ private:
     
     // Helper method to visit any node by index
     auto visit_node(NodeIndex node_index) -> void;
+    
+    // Helper methods for common operations
+    auto emit_set_reg(RegisterId dst_reg, RegisterId src_reg) -> void;
+    auto emit_add_reg(RegisterId reg, uint32_t amount) -> void;
+    auto emit_sub_reg(RegisterId reg, uint32_t amount) -> void;
     
     auto patch_defered_functions() -> void;
 
