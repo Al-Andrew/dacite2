@@ -100,14 +100,14 @@ auto CodeGenerator::visit_node(const VariableDeclaration& node) -> void {
     variable_stack_offset_table[var_name] = next_local_offset;
 
     // Allocate stack space
-    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD_RSP));
-    module.bytecode.push_back(sizeof(uint64_t)); // allocate 8 bytes for u64
+    emit_add_reg(dacite::RegisterId::RSP, sizeof(uint64_t));
 
     // Generate code for expression
     visit_node(node.initializer);
     
     // Store top of stack into variable location
-    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE_RBP));
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE_REG));
+    module.bytecode.push_back(static_cast<uint32_t>(dacite::RegisterId::RBP)); // register
     module.bytecode.push_back(next_local_offset);
 }
 
@@ -123,7 +123,8 @@ auto CodeGenerator::visit_node(const Identifier& node) -> void {
     }
     
     int32_t var_offset = it->second;
-    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD_RBP));
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::LOAD_REG));
+    module.bytecode.push_back(static_cast<uint32_t>(dacite::RegisterId::RBP)); // register
     module.bytecode.push_back(var_offset);
 }
 
@@ -183,7 +184,8 @@ auto CodeGenerator::visit_node(const BinaryExpression& node) -> void {
                     return;
                 }
                 int32_t var_offset = it->second;
-                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE_RBP));
+                module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::STORE_REG));
+                module.bytecode.push_back(static_cast<uint32_t>(dacite::RegisterId::RBP)); // register
                 module.bytecode.push_back(var_offset);
             } else {
                 fprintf(stderr, "Error: Assignment target is not an Identifier\n");
@@ -230,7 +232,7 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         // x86-style function prologue:
         // 1. Push old RBP (done by CALL instruction in caller)
         // 2. Set RBP to current RSP (establish new frame)
-        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SET_RBP));
+        emit_set_reg(dacite::RegisterId::RBP, dacite::RegisterId::RSP);
 
         // Save the current variable table to restore later
         auto saved_var_table = variable_stack_offset_table;
@@ -314,6 +316,45 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
             return;
         }
 
+    }
+
+    // Helper method implementations
+    auto CodeGenerator::emit_set_reg(RegisterId dst_reg, RegisterId src_reg) -> void {
+        // SET_REG dst, src → PUSH_REG src; POP_REG dst
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_REG));
+        module.bytecode.push_back(static_cast<uint32_t>(src_reg));
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::POP_REG));
+        module.bytecode.push_back(static_cast<uint32_t>(dst_reg));
+    }
+
+    auto CodeGenerator::emit_add_reg(RegisterId reg, uint32_t amount) -> void {
+        // ADD_REG reg, amount → PUSH_REG reg; PUSH_CONST slots; ADD; POP_REG reg
+        uint32_t slots = amount / sizeof(uint64_t);
+        uint32_t const_index = module.constants.size();
+        module.constants.push_back(slots);
+        
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_REG));
+        module.bytecode.push_back(static_cast<uint32_t>(reg));
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+        module.bytecode.push_back(const_index);
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::ADD));
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::POP_REG));
+        module.bytecode.push_back(static_cast<uint32_t>(reg));
+    }
+
+    auto CodeGenerator::emit_sub_reg(RegisterId reg, uint32_t amount) -> void {
+        // SUB_REG reg, amount → PUSH_REG reg; PUSH_CONST slots; SUBTRACT; POP_REG reg
+        uint32_t slots = amount / sizeof(uint64_t);
+        uint32_t const_index = module.constants.size();
+        module.constants.push_back(slots);
+        
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_REG));
+        module.bytecode.push_back(static_cast<uint32_t>(reg));
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+        module.bytecode.push_back(const_index);
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::SUBTRACT));
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::POP_REG));
+        module.bytecode.push_back(static_cast<uint32_t>(reg));
     }
 
     auto CodeGenerator::patch_defered_functions() -> void {

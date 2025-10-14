@@ -31,20 +31,19 @@ const char* bytecode_op_to_string(BytecodeOp op) {
         case BytecodeOp::JMP: return "JMP";
         case BytecodeOp::CALL: return "CALL";
         case BytecodeOp::RETURN: return "RETURN";
-        case BytecodeOp::PUSH_RBP: return "PUSH_RBP";
-        case BytecodeOp::POP_RBP: return "POP_RBP";
-        case BytecodeOp::SET_RBP: return "SET_RBP";
-        case BytecodeOp::ADD_RSP: return "ADD_RSP";
-        case BytecodeOp::SUB_RSP: return "SUB_RSP";
-        case BytecodeOp::LOAD_RBP: return "LOAD_RBP";
-        case BytecodeOp::STORE_RBP: return "STORE_RBP";
+        case BytecodeOp::PUSH_REG: return "PUSH_REG";
+        case BytecodeOp::POP_REG: return "POP_REG";
+        case BytecodeOp::LOAD_REG: return "LOAD_REG";
+        case BytecodeOp::STORE_REG: return "STORE_REG";
         case BytecodeOp::HALT: return "HALT";
         default: return "UNKNOWN";
     }
 }
 
 // Helper function to print the current stack state
-void print_stack_state(const std::vector<uint64_t>& stack, size_t rsp, size_t rbp) {
+void print_stack_state(const std::vector<uint64_t>& stack, const std::vector<size_t>& registers) {
+    size_t rsp = registers[static_cast<size_t>(dacite::RegisterId::RSP)];
+    size_t rbp = registers[static_cast<size_t>(dacite::RegisterId::RBP)];
     printf("    Stack [size=%zu, RSP=%zu, RBP=%zu]: [", stack.size(), rsp, rbp);
     for(size_t i = 0; i < rsp && i < stack.size(); ++i) {
         if(i > 0) printf(", ");
@@ -55,7 +54,7 @@ void print_stack_state(const std::vector<uint64_t>& stack, size_t rsp, size_t rb
 }
 
 #if DACITE_TRACE_EXECUTION
-    #define PRINT_STACK_STATE() print_stack_state(stack, rsp, rbp)
+    #define PRINT_STACK_STATE() print_stack_state(stack, registers)
     #define TRACE_INSTRUCTION(op) DBG_PRINT("PC %zu: Executing %s", pc, bytecode_op_to_string(op)); PRINT_STACK_STATE()
     #define TRACE_INSTRUCTION_WITH_OPERAND(op, operand) DBG_PRINT("PC %zu: Executing %s (operand: %d)", pc, bytecode_op_to_string(op), operand); PRINT_STACK_STATE()
 #else
@@ -83,9 +82,13 @@ bool VM::run() {
     const CompiledModule& module = modules[current_module_index];
     size_t pc = 0; // program counter
     
-    // Initialize stack pointers
-    rsp = 0;
-    rbp = 0;
+    // Initialize registers
+    registers[static_cast<size_t>(dacite::RegisterId::RSP)] = 0;  // RSP
+    registers[static_cast<size_t>(dacite::RegisterId::RBP)] = 0;  // RBP
+    
+    // Helper references for cleaner code
+    auto& rsp = registers[static_cast<size_t>(dacite::RegisterId::RSP)];
+    auto& rbp = registers[static_cast<size_t>(dacite::RegisterId::RBP)];
     
     while(pc < module.bytecode.size()) {
         dacite::BytecodeOp op = static_cast<dacite::BytecodeOp>(module.bytecode[pc]);
@@ -253,75 +256,69 @@ bool VM::run() {
                 rsp++;
                 pc += 2; // advance past LOAD and its operand
             } break;
-            case dacite::BytecodeOp::PUSH_RBP: {
-                TRACE_INSTRUCTION(op);
+            case dacite::BytecodeOp::PUSH_REG: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: PUSH_REG instruction missing operand\n");
+                    return false;
+                }
+                uint32_t reg_id = module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, reg_id);
+                
+                if(reg_id >= registers.size()) {
+                    fprintf(stderr, "Error: PUSH_REG invalid register id %u\n", reg_id);
+                    return false;
+                }
+                
                 // Ensure stack has enough space
                 if(rsp >= stack.size()) {
                     stack.resize(rsp + 1);
                 }
-                stack[rsp] = rbp;
+                stack[rsp] = registers[reg_id];
                 rsp++;
-                pc += 1;
+                pc += 2;
             } break;
-            case dacite::BytecodeOp::POP_RBP: {
-                TRACE_INSTRUCTION(op);
+            case dacite::BytecodeOp::POP_REG: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: POP_REG instruction missing operand\n");
+                    return false;
+                }
+                uint32_t reg_id = module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, reg_id);
+                
+                if(reg_id >= registers.size()) {
+                    fprintf(stderr, "Error: POP_REG invalid register id %u\n", reg_id);
+                    return false;
+                }
+                
                 if(rsp == 0) {
-                    fprintf(stderr, "Error: POP_RBP instruction requires at least 1 value on the stack\n");
+                    fprintf(stderr, "Error: POP_REG instruction requires at least 1 value on the stack\n");
                     return false;
                 }
                 rsp--;
-                rbp = stack[rsp];
-                pc += 1;
-            } break;
-            case dacite::BytecodeOp::SET_RBP: {
-                TRACE_INSTRUCTION(op);
-                rbp = rsp;
-                pc += 1;
-            } break;
-            case dacite::BytecodeOp::ADD_RSP: {
-                if(pc + 1 >= module.bytecode.size()) {
-                    fprintf(stderr, "Error: ADD_RSP instruction missing operand\n");
-                    return false;
-                }
-                uint32_t amount = module.bytecode[pc + 1];
-                TRACE_INSTRUCTION_WITH_OPERAND(op, amount);
-                
-                uint32_t slots = amount / sizeof(uint64_t);
-                // Ensure stack has enough space
-                if(rsp + slots > stack.size()) {
-                    stack.resize(rsp + slots);
-                }
-                rsp += slots;
+                registers[reg_id] = stack[rsp];
                 pc += 2;
             } break;
-            case dacite::BytecodeOp::SUB_RSP: {
-                if(pc + 1 >= module.bytecode.size()) {
-                    fprintf(stderr, "Error: SUB_RSP instruction missing operand\n");
+
+
+
+            case dacite::BytecodeOp::LOAD_REG: {
+                if(pc + 3 > module.bytecode.size()) {
+                    fprintf(stderr, "Error: LOAD_REG instruction missing operands (needs 2 operands: reg_id and offset)\n");
                     return false;
                 }
-                uint32_t amount = module.bytecode[pc + 1];
-                TRACE_INSTRUCTION_WITH_OPERAND(op, amount);
+                uint32_t reg_id = module.bytecode[pc + 1];
+                int32_t offset = (int32_t)module.bytecode[pc + 2];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, reg_id);
                 
-                uint32_t slots = amount / sizeof(uint64_t);
-                if(rsp < slots) {
-                    fprintf(stderr, "Error: SUB_RSP would underflow stack\n");
+                if(reg_id >= registers.size()) {
+                    fprintf(stderr, "Error: LOAD_REG invalid register id %u\n", reg_id);
                     return false;
                 }
-                rsp -= slots;
-                pc += 2;
-            } break;
-            case dacite::BytecodeOp::LOAD_RBP: {
-                if(pc + 1 >= module.bytecode.size()) {
-                    fprintf(stderr, "Error: LOAD_RBP instruction missing operand\n");
-                    return false;
-                }
-                int32_t offset = (int32_t)module.bytecode[pc + 1];
-                TRACE_INSTRUCTION_WITH_OPERAND(op, offset);
                 
-                // Calculate address: RBP + (offset / 8) where offset can be negative for parameters
-                int64_t addr = (int64_t)rbp + (offset / (int32_t)sizeof(uint64_t));
+                // Calculate address: REG + (offset / 8) where offset can be negative for parameters
+                int64_t addr = (int64_t)registers[reg_id] + (offset / (int32_t)sizeof(uint64_t));
                 if(addr < 0 || addr >= (int64_t)stack.size()) {
-                    fprintf(stderr, "Error: LOAD_RBP has invalid address %ld (rbp=%zu, offset=%d)\n", addr, rbp, offset);
+                    fprintf(stderr, "Error: LOAD_REG has invalid address %ld (reg[%u]=%zu, offset=%d)\n", addr, reg_id, registers[reg_id], offset);
                     return false;
                 }
                 
@@ -331,31 +328,37 @@ bool VM::run() {
                 }
                 stack[rsp] = stack[addr];
                 rsp++;
-                pc += 2;
+                pc += 3;
             } break;
-            case dacite::BytecodeOp::STORE_RBP: {
-                if(pc + 1 >= module.bytecode.size()) {
-                    fprintf(stderr, "Error: STORE_RBP instruction missing operand\n");
+            case dacite::BytecodeOp::STORE_REG: {
+                if(pc + 3 > module.bytecode.size()) {
+                    fprintf(stderr, "Error: STORE_REG instruction missing operands\n");
                     return false;
                 }
-                int32_t offset = (int32_t)module.bytecode[pc + 1];
-                TRACE_INSTRUCTION_WITH_OPERAND(op, offset);
+                uint32_t reg_id = module.bytecode[pc + 1];
+                int32_t offset = (int32_t)module.bytecode[pc + 2];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, reg_id);
+                
+                if(reg_id >= registers.size()) {
+                    fprintf(stderr, "Error: STORE_REG invalid register id %u\n", reg_id);
+                    return false;
+                }
                 
                 if(rsp == 0) {
-                    fprintf(stderr, "Error: STORE_RBP requires at least 1 value on the stack\n");
+                    fprintf(stderr, "Error: STORE_REG requires at least 1 value on the stack\n");
                     return false;
                 }
                 
-                // Calculate address: RBP + (offset / 8) where offset can be negative for parameters
-                int64_t addr = (int64_t)rbp + (offset / (int32_t)sizeof(uint64_t));
+                // Calculate address: REG + (offset / 8) where offset can be negative for parameters
+                int64_t addr = (int64_t)registers[reg_id] + (offset / (int32_t)sizeof(uint64_t));
                 if(addr < 0 || addr >= (int64_t)stack.size()) {
-                    fprintf(stderr, "Error: STORE_RBP has invalid address %ld (rbp=%zu, offset=%d)\n", addr, rbp, offset);
+                    fprintf(stderr, "Error: STORE_REG has invalid address %ld (reg[%u]=%zu, offset=%d)\n", addr, reg_id, registers[reg_id], offset);
                     return false;
                 }
                 
                 rsp--;
                 stack[addr] = stack[rsp];
-                pc += 2;
+                pc += 3;
             } break;
             case dacite::BytecodeOp::HALT: {
                 TRACE_INSTRUCTION(op);
@@ -478,8 +481,8 @@ bool VM::run() {
 void VM::reset() {
     modules.clear();
     stack.clear();
-    rsp = 0;
-    rbp = 0;
+    registers[static_cast<size_t>(dacite::RegisterId::RSP)] = 0;
+    registers[static_cast<size_t>(dacite::RegisterId::RBP)] = 0;
 }
 
 } // namespace dacite
