@@ -27,6 +27,7 @@ enum class BytecodeOp : uint32_t {
     STORE = 9, // <where>
     LOAD = 10, // <where>
     JMP = 11, // <where>
+    JMP_IF_FALSE = 14, // <where> - Jump if top of stack is 0
 
     CALL = 12, // <function_offset>
     RETURN = 13,
@@ -81,6 +82,7 @@ private:
     auto visit_node(const IntrinsicHalt& node) -> void;
     auto visit_node(const FunctionCall& node) -> void;
     auto visit_node(const FunctionParameterDeclaration& node) -> void { /* no-op - used only during parsing */ }
+    auto visit_node(const IfStatement& node) -> void;
     
     // Helper method to visit any node by index
     auto visit_node(NodeIndex node_index) -> void;

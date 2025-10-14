@@ -24,6 +24,7 @@ struct Block;
 struct ReturnStatement;
 struct FunctionCall;
 struct FunctionParameterDeclaration;
+struct IfStatement;
 
 // Node variant type containing all possible node types
 using ASTNodeVariant = std::variant<
@@ -40,7 +41,8 @@ using ASTNodeVariant = std::variant<
     Block,
     ReturnStatement,
     FunctionCall,
-    FunctionParameterDeclaration
+    FunctionParameterDeclaration,
+    IfStatement
 >;
 
 // Index type for referencing nodes
@@ -134,6 +136,14 @@ struct FunctionParameterDeclaration {
         : name(n), type(t) {}
 };
 
+struct IfStatement {
+    NodeIndex condition;
+    NodeIndex then_block;
+    NodeIndex else_block;  // INVALID_NODE_INDEX if no else clause
+    
+    IfStatement() : condition(INVALID_NODE_INDEX), then_block(INVALID_NODE_INDEX), else_block(INVALID_NODE_INDEX) {}
+};
+
 struct AST {
     // Default constructor
     AST() = default;
@@ -219,6 +229,7 @@ private:
     auto parse_return_statement() -> NodeIndex;
     auto parse_halt_statement() -> NodeIndex;
     auto parse_function_call(NodeIndex callee) -> NodeIndex;
+    auto parse_if_statement() -> NodeIndex;
 
     // Helper functions for common parsing patterns
     auto expect_token(Token::Type expected_type, const char* context) -> bool;

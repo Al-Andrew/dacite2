@@ -29,6 +29,7 @@ const char* bytecode_op_to_string(BytecodeOp op) {
         case BytecodeOp::STORE: return "STORE";
         case BytecodeOp::LOAD: return "LOAD";
         case BytecodeOp::JMP: return "JMP";
+        case BytecodeOp::JMP_IF_FALSE: return "JMP_IF_FALSE";
         case BytecodeOp::CALL: return "CALL";
         case BytecodeOp::RETURN: return "RETURN";
         case BytecodeOp::PUSH_REG: return "PUSH_REG";
@@ -380,6 +381,35 @@ bool VM::run() {
                     return false;
                 }
                 pc = where; // jump to target
+            } break;
+            case dacite::BytecodeOp::JMP_IF_FALSE: {
+                if(pc + 1 >= module.bytecode.size()) {
+                    fprintf(stderr, "Error: JMP_IF_FALSE instruction missing operand\n");
+                    return false;
+                }
+                uint32_t where = module.bytecode[pc + 1];
+                TRACE_INSTRUCTION_WITH_OPERAND(op, where);
+                
+                if(rsp == 0) {
+                    fprintf(stderr, "Error: JMP_IF_FALSE instruction requires at least 1 value on the stack\n");
+                    return false;
+                }
+                
+                // Pop condition value from stack
+                rsp--;
+                uint64_t condition = stack[rsp];
+                
+                if(condition == 0) {
+                    // Condition is false, jump to target
+                    if(where >= module.bytecode.size()) {
+                        fprintf(stderr, "Error: JMP_IF_FALSE instruction has invalid target %u\n", where);
+                        return false;
+                    }
+                    pc = where;
+                } else {
+                    // Condition is true, continue to next instruction
+                    pc += 2;
+                }
             } break;
             case dacite::BytecodeOp::RETURN: {
                 TRACE_INSTRUCTION(op);
