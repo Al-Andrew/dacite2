@@ -18,6 +18,7 @@ namespace dacite {
             Keyword_Return,
             Keyword_If,
             Keyword_Else,
+            Keyword_While,
     
             Intrinsic_Print,
             Intrinsic_Halt,
@@ -66,6 +67,7 @@ namespace dacite {
         arr[Token::Type::Keyword_Return] = "Keyword_Return";
         arr[Token::Type::Keyword_If] = "Keyword_If";
         arr[Token::Type::Keyword_Else] = "Keyword_Else";
+        arr[Token::Type::Keyword_While] = "Keyword_While";
         arr[Token::Type::Intrinsic_Print] = "Intrinsic_Print";
         arr[Token::Type::Literal_Number] = "Literal_Number";
         arr[Token::Type::Identifier] = "Identifier";
@@ -124,19 +126,21 @@ namespace dacite {
         return map;
     }();
 
-    static constexpr std::array<Token::Type, 5> keyword_types_list = {
+    static constexpr std::array<Token::Type, 6> keyword_types_list = {
         Token::Type::Keyword_Let,
         Token::Type::Keyword_Fun,
         Token::Type::Keyword_Return,
         Token::Type::Keyword_If,
         Token::Type::Keyword_Else,
+        Token::Type::Keyword_While,
     };
-    static constexpr std::array<std::string_view, 5> keyword_strings_list = {
+    static constexpr std::array<std::string_view, 6> keyword_strings_list = {
         "let",
         "fun",
         "return",
         "if",
         "else",
+        "while",
     };
 
     static constexpr std::array<Token::Type, 2> intrinsic_types_list = {

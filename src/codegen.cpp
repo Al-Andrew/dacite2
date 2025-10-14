@@ -366,6 +366,39 @@ auto CodeGenerator::visit_node(const UnaryPrefixExpression& node) -> void {
         }
     }
 
+    auto CodeGenerator::visit_node(const WhileStatement& node) -> void {
+        DBG_PRINT("Visiting WhileStatement");
+        
+        // While loop structure:
+        // loop_start:
+        //   <condition>
+        //   JMP_IF_FALSE loop_end
+        //   <body>
+        //   JMP loop_start
+        // loop_end:
+        
+        uint32_t loop_start = module.bytecode.size();
+        
+        // Generate code for condition
+        visit_node(node.condition);
+        
+        // JMP_IF_FALSE to end of loop
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::JMP_IF_FALSE));
+        uint32_t jmp_if_false_offset = module.bytecode.size();
+        module.bytecode.push_back(0); // Placeholder for jump target
+        
+        // Generate code for body
+        visit_node(node.body);
+        
+        // Jump back to start of loop
+        module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::JMP));
+        module.bytecode.push_back(loop_start);
+        
+        // Patch the JMP_IF_FALSE to jump here (after loop)
+        uint32_t loop_end = module.bytecode.size();
+        module.bytecode[jmp_if_false_offset] = loop_end;
+    }
+
 
     // Helper method implementations
     auto CodeGenerator::emit_set_reg(RegisterId dst_reg, RegisterId src_reg) -> void {

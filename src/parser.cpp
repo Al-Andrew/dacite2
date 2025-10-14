@@ -85,6 +85,12 @@ namespace dacite {
                     printf("%*sElse:\n", (indent + 1) * 2, "");
                     print_node(node.else_block, indent + 2);
                 }
+            } else if constexpr (std::is_same_v<T, WhileStatement>) {
+                printf("%*sWhileStatement\n", indent * 2, "");
+                printf("%*sCondition:\n", (indent + 1) * 2, "");
+                print_node(node.condition, indent + 2);
+                printf("%*sBody:\n", (indent + 1) * 2, "");
+                print_node(node.body, indent + 2);
             }
             else {
                 printf("%*s(unknown node type)\n", indent * 2, "");
@@ -420,6 +426,9 @@ namespace dacite {
             case Token::Type::Keyword_If: {
                 return parse_if_statement();
             } break;
+            case Token::Type::Keyword_While: {
+                return parse_while_statement();
+            } break;
             case Token::Type::Lbrace: {
                 return parse_block();
             } break;
@@ -663,6 +672,42 @@ namespace dacite {
         }
 
         return ast.add_node(std::move(if_node));
+    }
+
+    auto Parser::parse_while_statement() -> NodeIndex {
+        DBG_PRINT("parse_while_statement: index=%zu", index);
+        
+        // Expecting: while ( <expression> ) <block>
+        if (!consume_token(Token::Type::Keyword_While, "while")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Lparen, "( after while")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto condition = parse_expression();
+        if (condition == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse condition after 'while' at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Rparen, ") after condition")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto body = parse_block();
+        if (body == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse while body at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        // Construct AST node for while statement
+        WhileStatement while_node;
+        while_node.condition = condition;
+        while_node.body = body;
+
+        return ast.add_node(std::move(while_node));
     }
 
 }

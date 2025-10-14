@@ -1,0 +1,15 @@
+
+
+fun main: () -> u32 = {
+
+    let x: u32 = 0;
+
+    while(x < 10) {
+        @print(x);
+        x = x + 1;
+    }
+
+    @print(x);
+
+    return 0;
+}

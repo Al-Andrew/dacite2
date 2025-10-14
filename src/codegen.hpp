@@ -83,6 +83,7 @@ private:
     auto visit_node(const FunctionCall& node) -> void;
     auto visit_node(const FunctionParameterDeclaration& node) -> void { /* no-op - used only during parsing */ }
     auto visit_node(const IfStatement& node) -> void;
+    auto visit_node(const WhileStatement& node) -> void;
     
     // Helper method to visit any node by index
     auto visit_node(NodeIndex node_index) -> void;
