@@ -1,0 +1,20 @@
+# Test string and char literals with main function
+
+fun main : () -> u8 = {
+    # String literals with different escape sequences
+    let greeting: u32 = "Hello, World!";
+    let multiline: u32 = "First line\nSecond line";
+    let with_tabs: u32 = "Name:\tJohn";
+    let with_quote: u32 = "He said \"Hi\"";
+    let path: u32 = "C:\\Users\\Documents";
+    
+    # Char literals
+    let letter: u32 = 'A';
+    let digit: u32 = '5';
+    let newline: u32 = '\n';
+    let tab_char: u32 = '\t';
+    
+    @print(42);
+    
+    return 0;
+};

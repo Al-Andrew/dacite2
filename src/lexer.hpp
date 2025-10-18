@@ -21,6 +21,8 @@ namespace dacite {
         auto peek_next() -> char;
 
         auto make_token(Token::Type type, size_t start_pos, size_t start_line, size_t start_column) -> Token;
+        auto lex_string_literal(size_t start_pos, size_t start_line, size_t start_column) -> Token;
+        auto lex_char_literal(size_t start_pos, size_t start_line, size_t start_column) -> Token;
 
         Lexer() = default;
 

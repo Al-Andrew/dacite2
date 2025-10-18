@@ -1,0 +1,15 @@
+# Test string literals
+let str1 = "hello world";
+let str2 = "hello\nworld";
+let str3 = "with\ttabs\rand\0null";
+let str4 = "escaped quote: \"hello\"";
+let str5 = "backslash: \\";
+
+# Test char literals
+let c1 = 'a';
+let c2 = 'Z';
+let c3 = '0';
+let c4 = '\n';
+let c5 = '\0';
+let c6 = '\'';
+let c7 = '\\';

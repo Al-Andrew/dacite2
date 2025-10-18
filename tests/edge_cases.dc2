@@ -1,0 +1,17 @@
+# Test edge cases and error conditions
+
+fun test_edge_cases : () -> u8 = {
+    # Valid cases
+    let valid_empty: u32 = "";
+    let valid_single: u32 = "a";
+    let valid_char: u32 = 'x';
+    
+    # These would be errors (commented out to make it parseable):
+    # let unterminated_string: u32 = "this has no end
+    # let unterminated_char: u32 = 'x
+    # let empty_char: u32 = '';
+    # let multi_char: u32 = 'abc';
+    # let invalid_escape: u32 = "bad\x";
+    
+    return 0;
+};

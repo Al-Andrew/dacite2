@@ -15,6 +15,8 @@ struct VariableDeclaration;
 struct IntrinsicPrint;
 struct IntrinsicHalt;
 struct NumberLiteral;
+struct StringLiteral;
+struct CharLiteral;
 struct Identifier;
 struct Type;
 struct BinaryExpression;
@@ -34,6 +36,8 @@ using ASTNodeVariant = std::variant<
     IntrinsicPrint,
     IntrinsicHalt,
     NumberLiteral,
+    StringLiteral,
+    CharLiteral,
     Identifier,
     Type,
     BinaryExpression,
@@ -70,6 +74,18 @@ struct NumberLiteral {
     Token token;
     
     NumberLiteral(const Token& t) : token(t) {}
+};
+
+struct StringLiteral {
+    Token token;
+    
+    StringLiteral(const Token& t) : token(t) {}
+};
+
+struct CharLiteral {
+    Token token;
+    
+    CharLiteral(const Token& t) : token(t) {}
 };
 
 struct Identifier {

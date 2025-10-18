@@ -73,6 +73,8 @@ private:
     auto visit_node(const Identifier& node) -> void;
     auto visit_node(const IntrinsicPrint& node) -> void;
     auto visit_node(const NumberLiteral& node) -> void;
+    auto visit_node(const StringLiteral& node) -> void;
+    auto visit_node(const CharLiteral& node) -> void;
     auto visit_node(const BinaryExpression& node) -> void;
     auto visit_node(const UnaryPrefixExpression& node) -> void;
     auto visit_node(const Type& node) -> void { /* no-op - used only during parsing */ }

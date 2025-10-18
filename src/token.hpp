@@ -25,7 +25,9 @@ namespace dacite {
             
             
             Literal_Number,
-    
+            Literal_String,
+            Literal_Char,
+
             Identifier,
             
             Lparen,
@@ -70,6 +72,8 @@ namespace dacite {
         arr[Token::Type::Keyword_While] = "Keyword_While";
         arr[Token::Type::Intrinsic_Print] = "Intrinsic_Print";
         arr[Token::Type::Literal_Number] = "Literal_Number";
+        arr[Token::Type::Literal_String] = "Literal_String";
+        arr[Token::Type::Literal_Char] = "Literal_Char";
         arr[Token::Type::Identifier] = "Identifier";
         arr[Token::Type::Lparen] = "Lparen";
         arr[Token::Type::Rparen] = "Rparen";
