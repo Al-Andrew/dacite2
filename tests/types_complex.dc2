@@ -1,0 +1,12 @@
+fun test : (ptr: *u32, slice: []u8, arr: [5]u16) -> **u32 = {
+    return 0;
+};
+
+fun main : () -> u8 = {
+    let ptr: *u32 = 42;
+    let double_ptr: **u32 = 42;
+    let slice: []u32 = 42;
+    let arr: [10]u32 = 42;
+    @print(ptr);
+    return 0;
+};

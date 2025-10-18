@@ -1,0 +1,5 @@
+fun main : () -> u8 = {
+    let x: *u32 = 42;
+    @print(x);
+    return 0;
+};

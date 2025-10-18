@@ -95,9 +95,26 @@ struct Identifier {
 };
 
 struct Type {
-    Token token;
+    enum class Kind {
+        Basic,      // u8, u32, etc.
+        Pointer,    // *T
+        Slice,      // []T
+        Array       // [N]T
+    };
     
-    Type(const Token& t) : token(t) {}
+    Kind kind;
+    Token token;                    // For Basic types: the type identifier; For others: may be empty
+    NodeIndex element_type;         // For Pointer, Slice, Array: the type being pointed to/contained
+    NodeIndex array_size_expr;      // For Array: the size expression (should be a NumberLiteral)
+    
+    Type(const Token& t) 
+        : kind(Kind::Basic), token(t), element_type(INVALID_NODE_INDEX), array_size_expr(INVALID_NODE_INDEX) {}
+    
+    Type(Kind k, NodeIndex elem_type) 
+        : kind(k), token{Token::Type::Unknown, "", 0, 0}, element_type(elem_type), array_size_expr(INVALID_NODE_INDEX) {}
+    
+    Type(Kind k, NodeIndex elem_type, NodeIndex size_expr) 
+        : kind(k), token{Token::Type::Unknown, "", 0, 0}, element_type(elem_type), array_size_expr(size_expr) {}
 };
 
 struct BinaryExpression {
@@ -256,6 +273,7 @@ private:
     auto parse_function_call(NodeIndex callee) -> NodeIndex;
     auto parse_if_statement() -> NodeIndex;
     auto parse_while_statement() -> NodeIndex;
+    auto parse_type() -> NodeIndex;
 
     // Helper functions for common parsing patterns
     auto expect_token(Token::Type expected_type, const char* context) -> bool;
