@@ -43,7 +43,26 @@ namespace dacite {
                 printf("%*sIdentifier: %s\n", indent * 2, "", lexeme.c_str());
             } else if constexpr (std::is_same_v<T, Type>) {
                 std::string lexeme{node.token.lexeme};
-                printf("%*sType: %s\n", indent * 2, "", lexeme.c_str());
+                switch(node.kind) {
+                    case Type::Kind::Basic:
+                        printf("%*sType: %s\n", indent * 2, "", lexeme.c_str());
+                        break;
+                    case Type::Kind::Pointer:
+                        printf("%*sType: Pointer\n", indent * 2, "");
+                        print_node(node.element_type, indent + 1);
+                        break;
+                    case Type::Kind::Slice:
+                        printf("%*sType: Slice\n", indent * 2, "");
+                        print_node(node.element_type, indent + 1);
+                        break;
+                    case Type::Kind::Array:
+                        printf("%*sType: Array\n", indent * 2, "");
+                        printf("%*sSize:\n", (indent + 1) * 2, "");
+                        print_node(node.array_size_expr, indent + 2);
+                        printf("%*sElement Type:\n", (indent + 1) * 2, "");
+                        print_node(node.element_type, indent + 2);
+                        break;
+                }
             } else if constexpr (std::is_same_v<T, BinaryExpression>) {
                 std::string lexeme{node.operator_token.lexeme};
                 printf("%*sBinaryExpression: %s\n", indent * 2, "", lexeme.c_str());
@@ -373,11 +392,11 @@ namespace dacite {
             return INVALID_NODE_INDEX;
         }
 
-        if (!expect_token(Token::Type::Identifier, "type identifier after ':'")) {
+        auto type_index = parse_type();
+        if (type_index == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse type after ':' at token %zu\n", index);
             return INVALID_NODE_INDEX;
         }
-        Token type_token = tokens[index++]; // consume type identifier
-        auto type_index = ast.add_node(Type(type_token));
         DBG_PRINT("Parsed type");
 
         if (!consume_token(Token::Type::Equals, "= after type")) {
@@ -515,16 +534,23 @@ namespace dacite {
                 return INVALID_NODE_INDEX;
             }
 
-            if(!expect_token(Token::Type::Identifier, "parameter type")) {
+            auto param_type_index = parse_type();
+            if (param_type_index == INVALID_NODE_INDEX) {
+                fprintf(stderr, "Error: Failed to parse parameter type at token %zu\n", index);
                 return INVALID_NODE_INDEX;
             }
-            Token param_type_token = tokens[index++]; // consume parameter type // TODO: support complex types
-            DBG_PRINT("Parsed parameter type: %.*s", (int)param_type_token.lexeme.size(), param_type_token.lexeme.data());
+            DBG_PRINT("Parsed parameter type");
 
-            auto param_type_index = ast.add_node(Type(param_type_token));
             FunctionParameterDeclaration param_decl_node(param_name_token, param_type_index);
             func_decl_node.parameters.push_back(ast.add_node(std::move(param_decl_node)));
 
+            // Check for comma separator (if not at the end)
+            if (!is_at_end() && current_token().type == Token::Type::Comma) {
+                index++; // consume comma
+            } else if (!is_at_end() && current_token().type != Token::Type::Rparen) {
+                fprintf(stderr, "Error: Expected ',' or ')' after parameter at token %zu\n", index);
+                return INVALID_NODE_INDEX;
+            }
         }
 
         if (!consume_token(Token::Type::Rparen, ") after '('")) {
@@ -535,13 +561,12 @@ namespace dacite {
             return INVALID_NODE_INDEX;
         }
 
-        if (!expect_token(Token::Type::Identifier, "return type after '->'")) {
+        auto return_type_index = parse_type();
+        if (return_type_index == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse return type at token %zu\n", index);
             return INVALID_NODE_INDEX;
         }
-        // TODO: support complex return types
-        Token return_type_token = tokens[index++]; // consume return type
-        auto return_type_index = ast.add_node(Type(return_type_token));
-        DBG_PRINT("Parsed return type: %.*s", (int)return_type_token.lexeme.size(), return_type_token.lexeme.data());
+        DBG_PRINT("Parsed return type");
 
         func_decl_node.return_type = return_type_index;
 
@@ -722,6 +747,73 @@ namespace dacite {
         while_node.body = body;
 
         return ast.add_node(std::move(while_node));
+    }
+
+    auto Parser::parse_type() -> NodeIndex {
+        DBG_PRINT("parse_type: index=%zu", index);
+        
+        if (is_at_end()) {
+            fprintf(stderr, "Error: Unexpected end of tokens while parsing type at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+        
+        const Token& token = current_token();
+        
+        // Check for pointer type: *T, **T, etc.
+        if (token.type == Token::Type::Star) {
+            index++; // consume *
+            auto element_type = parse_type();
+            if (element_type == INVALID_NODE_INDEX) {
+                fprintf(stderr, "Error: Failed to parse element type for pointer at token %zu\n", index);
+                return INVALID_NODE_INDEX;
+            }
+            return ast.add_node(Type(Type::Kind::Pointer, element_type));
+        }
+        
+        // Check for slice or array type: []T or [N]T
+        if (token.type == Token::Type::Lbracket) {
+            index++; // consume [
+            
+            // Check if it's a slice []T or array [N]T
+            if (!is_at_end() && current_token().type == Token::Type::Rbracket) {
+                // It's a slice []T
+                index++; // consume ]
+                auto element_type = parse_type();
+                if (element_type == INVALID_NODE_INDEX) {
+                    fprintf(stderr, "Error: Failed to parse element type for slice at token %zu\n", index);
+                    return INVALID_NODE_INDEX;
+                }
+                return ast.add_node(Type(Type::Kind::Slice, element_type));
+            } else {
+                // It's an array [N]T - parse the size
+                if (!expect_token(Token::Type::Literal_Number, "array size")) {
+                    return INVALID_NODE_INDEX;
+                }
+                Token size_token = tokens[index++]; // consume size
+                auto size_expr = ast.add_node(NumberLiteral(size_token));
+                
+                if (!consume_token(Token::Type::Rbracket, "] after array size")) {
+                    return INVALID_NODE_INDEX;
+                }
+                
+                auto element_type = parse_type();
+                if (element_type == INVALID_NODE_INDEX) {
+                    fprintf(stderr, "Error: Failed to parse element type for array at token %zu\n", index);
+                    return INVALID_NODE_INDEX;
+                }
+                
+                return ast.add_node(Type(Type::Kind::Array, element_type, size_expr));
+            }
+        }
+        
+        // Basic type: u8, u32, etc.
+        if (token.type == Token::Type::Identifier) {
+            Token type_token = tokens[index++]; // consume type identifier
+            return ast.add_node(Type(type_token));
+        }
+        
+        fprintf(stderr, "Error: Expected type at token %zu but got token type %d\n", index, (int)token.type);
+        return INVALID_NODE_INDEX;
     }
 
 }

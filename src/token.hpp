@@ -34,6 +34,8 @@ namespace dacite {
             Rparen,
             Lbrace,
             Rbrace,
+            Lbracket,
+            Rbracket,
             
             Plus,
             Minus,
@@ -79,6 +81,8 @@ namespace dacite {
         arr[Token::Type::Rparen] = "Rparen";
         arr[Token::Type::Lbrace] = "Lbrace";
         arr[Token::Type::Rbrace] = "Rbrace";
+        arr[Token::Type::Lbracket] = "Lbracket";
+        arr[Token::Type::Rbracket] = "Rbracket";
         arr[Token::Type::Plus] = "Plus";
         arr[Token::Type::Minus] = "Minus";
         arr[Token::Type::Star] = "Star";
@@ -102,6 +106,8 @@ namespace dacite {
         map[')'] = Token::Type::Rparen;
         map['{'] = Token::Type::Lbrace;
         map['}'] = Token::Type::Rbrace;
+        map['['] = Token::Type::Lbracket;
+        map[']'] = Token::Type::Rbracket;
         map['+'] = Token::Type::Plus;
         map['-'] = Token::Type::Minus;
         map['*'] = Token::Type::Star;

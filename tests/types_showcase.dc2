@@ -1,0 +1,48 @@
+# Type System Examples
+
+# 1. Basic types
+fun basic_types : () -> u8 = {
+    let x: u8 = 1;
+    let y: u32 = 42;
+    return 0;
+};
+
+# 2. Pointer types
+fun pointer_types : () -> *u32 = {
+    let ptr: *u32 = 42;
+    let double_ptr: **u32 = 42;
+    let triple_ptr: ***u32 = 42;
+    return 0;
+};
+
+# 3. Slice types
+fun slice_types : () -> []u8 = {
+    let slice: []u32 = 42;
+    let slice_ptr: []*u32 = 42;
+    return 0;
+};
+
+# 4. Array types
+fun array_types : () -> [5]u8 = {
+    let arr: [10]u32 = 42;
+    let arr_ptr: [10]*u32 = 42;
+    return 0;
+};
+
+# 5. Complex nested types
+fun complex_types : (
+    basic: u32,
+    ptr: *u32,
+    double_ptr: **u32,
+    slice: []u32,
+    slice_ptr: []*u32,
+    arr: [10]u32,
+    arr_slice: [][5]u32,
+    ptr_arr: *[10]u32
+) -> **[5]*u32 = {
+    return 0;
+};
+
+fun main : () -> u8 = {
+    return 0;
+};
