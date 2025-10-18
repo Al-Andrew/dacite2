@@ -1,0 +1,24 @@
+
+
+fun main: () -> u32 = {
+
+    let gt_result_true : u32 = 2 > 1;
+    let gt_result_false : u32 = 1 > 2;
+    let lt_result_true : u32 = 1 < 2;
+    let lt_result_false : u32 = 2 < 1;
+    let eq_result_true : u32 = 1 == 1;
+    let eq_result_false : u32 = 1 == 2;
+    let neq_result_true : u32 = 1 != 2;
+    let neq_result_false : u32 = 1 != 1;
+
+    @print(gt_result_true);
+    @print(gt_result_false);
+    @print(lt_result_true);
+    @print(lt_result_false);
+    @print(eq_result_true);
+    @print(eq_result_false);
+    @print(neq_result_true);
+    @print(neq_result_false);
+
+    return 0;
+};

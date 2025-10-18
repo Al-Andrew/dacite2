@@ -23,10 +23,11 @@ enum class BytecodeOp : uint32_t {
     DIVIDE = 5,
     PUSH_CONST = 6,
     POP = 7,
-    RESERVE = 8, // <how much> 
+    RESERVE = 8, // <how much>
     STORE = 9, // <where>
     LOAD = 10, // <where>
     JMP = 11, // <where>
+    JMP_IF_FALSE = 14, // <where> - Jump if top of stack is 0
 
     CALL = 12, // <function_offset>
     RETURN = 13,
@@ -38,6 +39,12 @@ enum class BytecodeOp : uint32_t {
     STORE_REG = 21,   // <reg_id> <offset> - Store to [register + offset]
 
     HALT = 22,
+
+    // Comparison operations
+    CMP_EQ = 23,      // Compare equal (==)
+    CMP_NEQ = 24,     // Compare not equal (!=)
+    CMP_LT = 25,      // Compare less than (<)
+    CMP_GT = 26,      // Compare greater than (>)
 };
 
 // Compiled module structure
@@ -75,6 +82,8 @@ private:
     auto visit_node(const IntrinsicHalt& node) -> void;
     auto visit_node(const FunctionCall& node) -> void;
     auto visit_node(const FunctionParameterDeclaration& node) -> void { /* no-op - used only during parsing */ }
+    auto visit_node(const IfStatement& node) -> void;
+    auto visit_node(const WhileStatement& node) -> void;
     
     // Helper method to visit any node by index
     auto visit_node(NodeIndex node_index) -> void;

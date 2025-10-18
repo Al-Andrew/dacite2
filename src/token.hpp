@@ -16,6 +16,9 @@ namespace dacite {
             Keyword_Let,
             Keyword_Fun,
             Keyword_Return,
+            Keyword_If,
+            Keyword_Else,
+            Keyword_While,
     
             Intrinsic_Print,
             Intrinsic_Halt,
@@ -36,6 +39,10 @@ namespace dacite {
             Slash,
     
             Equals,
+            DoubleEquals,
+            NotEquals,
+            LessThan,
+            GreaterThan,
 
             Comma,
             Colon,
@@ -58,6 +65,9 @@ namespace dacite {
         arr[Token::Type::Keyword_Let] = "Keyword_Let";
         arr[Token::Type::Keyword_Fun] = "Keyword_Fun";
         arr[Token::Type::Keyword_Return] = "Keyword_Return";
+        arr[Token::Type::Keyword_If] = "Keyword_If";
+        arr[Token::Type::Keyword_Else] = "Keyword_Else";
+        arr[Token::Type::Keyword_While] = "Keyword_While";
         arr[Token::Type::Intrinsic_Print] = "Intrinsic_Print";
         arr[Token::Type::Literal_Number] = "Literal_Number";
         arr[Token::Type::Identifier] = "Identifier";
@@ -70,6 +80,10 @@ namespace dacite {
         arr[Token::Type::Star] = "Star";
         arr[Token::Type::Slash] = "Slash";
         arr[Token::Type::Equals] = "Equals";
+        arr[Token::Type::DoubleEquals] = "DoubleEquals";
+        arr[Token::Type::NotEquals] = "NotEquals";
+        arr[Token::Type::LessThan] = "LessThan";
+        arr[Token::Type::GreaterThan] = "GreaterThan";
         arr[Token::Type::Comma] = "Comma";
         arr[Token::Type::Colon] = "Colon";
         arr[Token::Type::Semicolon] = "Semicolon";
@@ -88,7 +102,10 @@ namespace dacite {
         map['-'] = Token::Type::Minus;
         map['*'] = Token::Type::Star;
         map['/'] = Token::Type::Slash;
+        map['<'] = Token::Type::LessThan;
+        map['>'] = Token::Type::GreaterThan;
         map['='] = Token::Type::Equals;
+        map['!'] = Token::Type::Unknown;  // Will be handled by two_char_intruducers_map for !=
         map[':'] = Token::Type::Colon;
         map[';'] = Token::Type::Semicolon;
         map[','] = Token::Type::Comma;
@@ -104,18 +121,26 @@ namespace dacite {
     static constexpr std::array<Pair<const char*, Token::Type>, 256> two_char_intruducers_map = []() constexpr {
         std::array<Pair<const char*, Token::Type>, 256> map{};
         map['-'] = {"->", Token::Type::Arrow};
+        map['='] = {"==", Token::Type::DoubleEquals};
+        map['!'] = {"!=", Token::Type::NotEquals};
         return map;
     }();
 
-    static constexpr std::array<Token::Type, 3> keyword_types_list = {
+    static constexpr std::array<Token::Type, 6> keyword_types_list = {
         Token::Type::Keyword_Let,
         Token::Type::Keyword_Fun,
         Token::Type::Keyword_Return,
+        Token::Type::Keyword_If,
+        Token::Type::Keyword_Else,
+        Token::Type::Keyword_While,
     };
-    static constexpr std::array<std::string_view, 3> keyword_strings_list = {
+    static constexpr std::array<std::string_view, 6> keyword_strings_list = {
         "let",
         "fun",
         "return",
+        "if",
+        "else",
+        "while",
     };
 
     static constexpr std::array<Token::Type, 2> intrinsic_types_list = {

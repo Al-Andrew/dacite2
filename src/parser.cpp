@@ -75,6 +75,22 @@ namespace dacite {
                 std::string lexeme{node.name.lexeme};
                 printf("%*sFunctionParameterDeclaration: %s\n", indent * 2, "", lexeme.c_str());
                 print_node(node.type, indent + 1);
+            } else if constexpr (std::is_same_v<T, IfStatement>) {
+                printf("%*sIfStatement\n", indent * 2, "");
+                printf("%*sCondition:\n", (indent + 1) * 2, "");
+                print_node(node.condition, indent + 2);
+                printf("%*sThen:\n", (indent + 1) * 2, "");
+                print_node(node.then_block, indent + 2);
+                if (node.else_block != INVALID_NODE_INDEX) {
+                    printf("%*sElse:\n", (indent + 1) * 2, "");
+                    print_node(node.else_block, indent + 2);
+                }
+            } else if constexpr (std::is_same_v<T, WhileStatement>) {
+                printf("%*sWhileStatement\n", indent * 2, "");
+                printf("%*sCondition:\n", (indent + 1) * 2, "");
+                print_node(node.condition, indent + 2);
+                printf("%*sBody:\n", (indent + 1) * 2, "");
+                print_node(node.body, indent + 2);
             }
             else {
                 printf("%*s(unknown node type)\n", indent * 2, "");
@@ -134,10 +150,16 @@ namespace dacite {
                 return {7, 8};
             case Token::Type::Slash:
                 return {7, 8};
-        case Token::Type::Equals:
-            return {2, 1};
-        default:
-            return {0, 0};
+            case Token::Type::DoubleEquals:
+            case Token::Type::NotEquals:
+                return {3, 4};
+            case Token::Type::LessThan:
+            case Token::Type::GreaterThan:
+                return {3, 4};
+            case Token::Type::Equals:
+                return {2, 1};
+            default:
+                return {0, 0};
         }
     }
 
@@ -401,6 +423,12 @@ namespace dacite {
             case Token::Type::Keyword_Return: {
                 return parse_return_statement();
             } break;
+            case Token::Type::Keyword_If: {
+                return parse_if_statement();
+            } break;
+            case Token::Type::Keyword_While: {
+                return parse_while_statement();
+            } break;
             case Token::Type::Lbrace: {
                 return parse_block();
             } break;
@@ -587,7 +615,6 @@ namespace dacite {
             return INVALID_NODE_INDEX;
         }
 
-
         if (!consume_token(Token::Type::Semicolon, "; after @halt")) {
             return INVALID_NODE_INDEX;
         }
@@ -596,4 +623,91 @@ namespace dacite {
         IntrinsicHalt halt_node;
         return ast.add_node(std::move(halt_node));
     }
+
+    auto Parser::parse_if_statement() -> NodeIndex {
+        DBG_PRINT("parse_if_statement: index=%zu", index);
+        
+        // Expecting: if ( <expression> ) <block> [else <block>]
+        if (!consume_token(Token::Type::Keyword_If, "if")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Lparen, "( after if")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto condition = parse_expression();
+        if (condition == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse condition after 'if' at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Rparen, ") after condition")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto then_block = parse_block();
+        if (then_block == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse then block at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        // Construct AST node for if statement
+        IfStatement if_node;
+        if_node.condition = condition;
+        if_node.then_block = then_block;
+        if_node.else_block = INVALID_NODE_INDEX;
+
+        // Check for optional else clause
+        if (!is_at_end() && current_token().type == Token::Type::Keyword_Else) {
+            consume_token(Token::Type::Keyword_Else, "else");
+            
+            auto else_block = parse_block();
+            if (else_block == INVALID_NODE_INDEX) {
+                fprintf(stderr, "Error: Failed to parse else block at token %zu\n", index);
+                return INVALID_NODE_INDEX;
+            }
+            
+            if_node.else_block = else_block;
+        }
+
+        return ast.add_node(std::move(if_node));
+    }
+
+    auto Parser::parse_while_statement() -> NodeIndex {
+        DBG_PRINT("parse_while_statement: index=%zu", index);
+        
+        // Expecting: while ( <expression> ) <block>
+        if (!consume_token(Token::Type::Keyword_While, "while")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Lparen, "( after while")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto condition = parse_expression();
+        if (condition == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse condition after 'while' at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        if (!consume_token(Token::Type::Rparen, ") after condition")) {
+            return INVALID_NODE_INDEX;
+        }
+
+        auto body = parse_block();
+        if (body == INVALID_NODE_INDEX) {
+            fprintf(stderr, "Error: Failed to parse while body at token %zu\n", index);
+            return INVALID_NODE_INDEX;
+        }
+
+        // Construct AST node for while statement
+        WhileStatement while_node;
+        while_node.condition = condition;
+        while_node.body = body;
+
+        return ast.add_node(std::move(while_node));
+    }
+
 }
