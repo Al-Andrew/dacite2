@@ -147,6 +147,22 @@ auto CodeGenerator::visit_node(const NumberLiteral& node) -> void {
     module.bytecode.push_back(const_index);
 }
 
+auto CodeGenerator::visit_node(const StringLiteral& node) -> void {
+    // TODO: Implement string literal code generation
+    // For now, just push 0 as a placeholder
+    // In the future, strings should be stored as []u8 arrays
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+    module.bytecode.push_back(0);
+}
+
+auto CodeGenerator::visit_node(const CharLiteral& node) -> void {
+    // TODO: Implement char literal code generation
+    // For now, just push 0 as a placeholder
+    // In the future, chars should be u32 (UTF-8 support)
+    module.bytecode.push_back(static_cast<uint32_t>(BytecodeOp::PUSH_CONST));
+    module.bytecode.push_back(0);
+}
+
 auto CodeGenerator::visit_node(const BinaryExpression& node) -> void {
     if (node.operator_token.type == Token::Type::Equals) {
         // For assignment, rhs is evaluated first

@@ -1,0 +1,17 @@
+# Test string and char literals in a function
+
+fun test_strings : () -> u8 = {
+    let str1: u32 = "hello world";
+    let str2: u32 = "hello\nworld";
+    let str3: u32 = "with\ttabs";
+    let str4: u32 = "escaped quote: \"hello\"";
+    let str5: u32 = "backslash: \\";
+    
+    let c1: u32 = 'a';
+    let c2: u32 = 'Z';
+    let c3: u32 = '\n';
+    let c4: u32 = '\0';
+    let c5: u32 = '\'';
+    
+    return 0;
+};

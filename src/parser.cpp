@@ -32,6 +32,12 @@ namespace dacite {
             } else if constexpr (std::is_same_v<T, NumberLiteral>) {
                 std::string lexeme{node.token.lexeme};
                 printf("%*sNumberLiteral: %s\n", indent * 2, "", lexeme.c_str());
+            } else if constexpr (std::is_same_v<T, StringLiteral>) {
+                std::string lexeme{node.token.lexeme};
+                printf("%*sStringLiteral: %s\n", indent * 2, "", lexeme.c_str());
+            } else if constexpr (std::is_same_v<T, CharLiteral>) {
+                std::string lexeme{node.token.lexeme};
+                printf("%*sCharLiteral: %s\n", indent * 2, "", lexeme.c_str());
             } else if constexpr (std::is_same_v<T, Identifier>) {
                 std::string lexeme{node.token.lexeme};
                 printf("%*sIdentifier: %s\n", indent * 2, "", lexeme.c_str());
@@ -198,6 +204,14 @@ namespace dacite {
             case Token::Type::Literal_Number: {
                 DBG_PRINT("lhs is NumberLiteral: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
                 lhs = ast.add_node(NumberLiteral(lhs_token));
+            } break;
+            case Token::Type::Literal_String: {
+                DBG_PRINT("lhs is StringLiteral: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
+                lhs = ast.add_node(StringLiteral(lhs_token));
+            } break;
+            case Token::Type::Literal_Char: {
+                DBG_PRINT("lhs is CharLiteral: %.*s", (int)lhs_token.lexeme.size(), lhs_token.lexeme.data());
+                lhs = ast.add_node(CharLiteral(lhs_token));
             } break;
             case Token::Type::Identifier: {
                 lhs = ast.add_node(Identifier(lhs_token));

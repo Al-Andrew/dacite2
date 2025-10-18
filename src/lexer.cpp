@@ -36,9 +36,72 @@ namespace dacite {
         return this->source[this->current_pos];
     }
 
+    auto Lexer::peek_next() -> char {
+        if(this->current_pos + 1 >= this->source.size()) {
+            return '\0';
+        }
+        return this->source[this->current_pos + 1];
+    }
+
     auto Lexer::make_token(Token::Type type, size_t start_pos, size_t start_line, size_t start_column) -> Token {
         size_t length = this->current_pos - start_pos;
         return Token{type, this->source.substr(start_pos, length), start_line, start_column};
+    }
+
+    auto Lexer::lex_string_literal(size_t start_pos, size_t start_line, size_t start_column) -> Token {
+        // Consume characters until we find a closing quote or end of file
+        while(this->peek() != '\0' && this->peek() != '"') {
+            if(this->peek() == '\\') {
+                // Handle escape sequences
+                this->advance(); // consume backslash
+                char next = this->peek();
+                if(next == 'n' || next == 'r' || next == '0' || next == 't' || next == '\\' || next == '"') {
+                    this->advance(); // consume escape character
+                } else {
+                    // Invalid escape sequence, but continue parsing
+                    this->advance();
+                }
+            } else {
+                this->advance();
+            }
+        }
+        
+        if(this->peek() == '"') {
+            this->advance(); // consume closing quote
+            return this->make_token(Token::Type::Literal_String, start_pos, start_line, start_column);
+        } else {
+            // Unterminated string literal
+            return this->make_token(Token::Type::Unknown, start_pos, start_line, start_column);
+        }
+    }
+
+    auto Lexer::lex_char_literal(size_t start_pos, size_t start_line, size_t start_column) -> Token {
+        // A char literal should have exactly one character (or an escape sequence)
+        if(this->peek() == '\\') {
+            // Handle escape sequences
+            this->advance(); // consume backslash
+            char next = this->peek();
+            if(next == 'n' || next == 'r' || next == '0' || next == 't' || next == '\\' || next == '\'') {
+                this->advance(); // consume escape character
+            } else {
+                // Invalid escape sequence
+                return this->make_token(Token::Type::Unknown, start_pos, start_line, start_column);
+            }
+        } else if(this->peek() != '\0' && this->peek() != '\'') {
+            // Regular character
+            this->advance();
+        } else {
+            // Empty char literal
+            return this->make_token(Token::Type::Unknown, start_pos, start_line, start_column);
+        }
+        
+        if(this->peek() == '\'') {
+            this->advance(); // consume closing quote
+            return this->make_token(Token::Type::Literal_Char, start_pos, start_line, start_column);
+        } else {
+            // Unterminated or multi-character char literal
+            return this->make_token(Token::Type::Unknown, start_pos, start_line, start_column);
+        }
     }
 
     auto Lexer::tokenize_next() -> Token {
@@ -90,6 +153,16 @@ namespace dacite {
         }
         // Two character tokens
         // none for now
+
+        // String literals
+        if(c == '"') {
+            return this->lex_string_literal(start_pos, start_line, start_column);
+        }
+
+        // Char literals
+        if(c == '\'') {
+            return this->lex_char_literal(start_pos, start_line, start_column);
+        }
 
         // Literals
         constexpr static auto is_digit = [](char c) constexpr { return c >= '0' && c <= '9'; };
